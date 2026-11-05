@@ -115,6 +115,7 @@ export const api = {
   undoRemove: (token: string) => call<void>("undo_remove", { token }),
   setEnabled: (id: string, enabled: boolean) => call<void>("set_enabled", { id, enabled }),
   setPinned: (id: string, pinned: boolean) => call<void>("set_pinned", { id, pinned }),
+  launchGame: () => call<"battlenet" | "direct">("launch_game"),
   openFolder: (which: "logs" | "addons") => call<void>("open_folder", { which }),
   exportDiagnostics: () => call<string>("export_diagnostics"),
   log: (level: "info" | "warn" | "error", message: string) =>

@@ -262,9 +262,66 @@ fn fixed_drives() -> Vec<PathBuf> {
     vec![]
 }
 
+/// Battle.net's code for Forever in `--exec="launch <code>"`.
+pub const LAUNCH_CODE: &str = "WoWF";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LaunchedVia {
+    BattleNet,
+    Direct,
+}
+
+/// Where Battle.net is installed: the running copy first, then the default folders.
+pub fn battle_net_exe() -> Option<PathBuf> {
+    if let Some(p) = running_exes(&|n| n == "battle.net.exe").into_iter().next() {
+        return Some(p);
+    }
+    ["ProgramFiles(x86)", "ProgramFiles"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|d| PathBuf::from(d).join("Battle.net").join("Battle.net.exe"))
+        .find(|p| p.is_file())
+}
+
+/// Starts the game. Going through Battle.net keeps the user signed in; starting
+/// `Wow.exe` directly is the fallback when Battle.net isn't installed.
+pub fn launch(game: &GameInfo) -> crate::error::Result<LaunchedVia> {
+    use crate::error::Error;
+    if let Some(bnet) = battle_net_exe() {
+        std::process::Command::new(&bnet)
+            .arg(format!("--exec=launch {LAUNCH_CODE}"))
+            .spawn()
+            .map_err(|e| Error::io("start", &bnet, e))?;
+        tracing::info!(
+            ?bnet,
+            code = LAUNCH_CODE,
+            "asked Battle.net to start the game"
+        );
+        return Ok(LaunchedVia::BattleNet);
+    }
+    let exe = game.root.join("Wow.exe");
+    if !exe.is_file() {
+        return Err(Error::NotAGameFolder);
+    }
+    std::process::Command::new(&exe)
+        .current_dir(&game.root)
+        .spawn()
+        .map_err(|e| Error::io("start", &exe, e))?;
+    tracing::info!(?exe, "started Wow.exe directly (Battle.net not found)");
+    Ok(LaunchedVia::Direct)
+}
+
 /// Full paths of every running `Wow*.exe`.
-#[cfg(windows)]
 pub fn running_wow_exes() -> Vec<PathBuf> {
+    running_exes(&|name| {
+        name.starts_with("wow") && name.ends_with(".exe") && !name.contains("voice")
+    })
+}
+
+/// Full paths of running processes whose lower-case exe name matches `pred`.
+#[cfg(windows)]
+pub fn running_exes(pred: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
     use std::os::windows::ffi::OsStringExt;
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -292,7 +349,7 @@ pub fn running_wow_exes() -> Vec<PathBuf> {
                 .position(|&c| c == 0)
                 .unwrap_or(entry.szExeFile.len());
             let name = String::from_utf16_lossy(&entry.szExeFile[..len]).to_ascii_lowercase();
-            if name.starts_with("wow") && name.ends_with(".exe") && !name.contains("voice") {
+            if pred(&name) {
                 let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, entry.th32ProcessID);
                 if !h.is_null() {
                     let mut buf = [0u16; 1024];
@@ -319,7 +376,7 @@ pub fn running_wow_exes() -> Vec<PathBuf> {
 }
 
 #[cfg(not(windows))]
-pub fn running_wow_exes() -> Vec<PathBuf> {
+pub fn running_exes(_pred: &dyn Fn(&str) -> bool) -> Vec<PathBuf> {
     vec![]
 }
 

@@ -2,7 +2,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
   import { api } from "./lib/api";
-  import { app, applyTheme, checkUpdates, fail, refreshInstalled, refreshState, startListening, updateAll, type View } from "./lib/store.svelte";
+  import { app, applyTheme, checkUpdates, fail, play, refreshInstalled, refreshState, startListening, updateAll, type View } from "./lib/store.svelte";
   import { checkAppUpdate, installAppUpdate } from "./lib/updater";
   import Icon from "./components/Icon.svelte";
   import TitleBar from "./components/TitleBar.svelte";
@@ -15,6 +15,7 @@
   let ready = $state(false);
   const game = $derived(app.state?.game ?? null);
   const updateCount = $derived(app.installed.filter((a) => a.new_version && !a.pinned).length);
+  const installing = $derived(Object.keys(app.progress).length > 0);
 
   async function afterGameReady() {
     await refreshState();
@@ -95,6 +96,22 @@
             {app.installed.length} addon{app.installed.length === 1 ? "" : "s"}
           </div>
           <div class="path">{game.root}</div>
+          <button
+            class="play"
+            class:playing={game.running}
+            disabled={game.running || app.launching || installing}
+            title={installing ? "Wait for the current install to finish" : "Start WoW Forever through Battle.net"}
+            onclick={play}
+          >
+            {#if game.running}
+              <span class="dot"></span> Playing
+            {:else if app.launching}
+              <Icon name="spinner" size={16} stroke={2.4} class="spin" /> Starting…
+            {:else}
+              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5Z" fill="currentColor" /></svg>
+              Play
+            {/if}
+          </button>
         </div>
       </aside>
       <main class="main">
@@ -134,5 +151,15 @@
   .dot.idle { background: var(--faint); box-shadow: none; }
   .s { color: var(--muted); margin-top: 4px; line-height: 1.45; }
   .path { font-family: var(--mono); font-size: 10.5px; color: var(--faint); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .play {
+    margin-top: 10px; width: 100%; height: 38px; border-radius: 8px; border: 0; display: flex; align-items: center;
+    justify-content: center; gap: 8px; font-size: 14px; font-weight: 700; letter-spacing: 0.02em;
+    background: var(--accent); color: var(--accent-ink); box-shadow: 0 4px 14px var(--accent-soft); transition: background 0.12s, transform 0.08s;
+  }
+  .play:hover:not(:disabled) { background: var(--accent-2); }
+  .play:active:not(:disabled) { transform: translateY(1px); }
+  .play:disabled { opacity: 1; cursor: default; }
+  .play.playing { background: var(--panel); color: var(--ok); box-shadow: none; border: 1px solid var(--border); font-weight: 600; }
+  .play:disabled:not(.playing) { opacity: 0.7; }
   .main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
 </style>

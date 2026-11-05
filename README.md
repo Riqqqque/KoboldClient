@@ -17,6 +17,7 @@ Find addons, install them, keep them updated, and remove them cleanly.</p>
 - **Verified downloads.** Every download is checked against the SHA-1 or SHA-256 the source publishes. A file that doesn't match is thrown away and nothing changes.
 - **Installs that can't half-fail.** New files are staged next to `AddOns` and swapped in at once. If anything goes wrong, the old version is put back. If the PC crashes mid-install, the next launch repairs it.
 - **Safe delete.** Removed addons go to the Recycle Bin, with an Undo button. Libraries that another addon still uses are kept. Saved settings stay unless you choose to delete them.
+- **Play button.** Start the game from Kobold. It goes through Battle.net so you stay signed in.
 - **Disable without deleting**, pin a version, update one addon or all of them.
 - **Four themes:** Ember, Deepstone, Parchment and Fel.
 - **Updates itself.** New versions of Kobold are offered in the sidebar and install with one click.

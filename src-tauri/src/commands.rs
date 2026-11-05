@@ -113,6 +113,15 @@ pub fn set_pinned(core: Ctx, id: String, pinned: bool) -> Result<()> {
 }
 
 #[tauri::command]
+pub fn launch_game(core: Ctx) -> Result<crate::game::LaunchedVia> {
+    let game = core.game().ok_or(Error::NoGame)?;
+    if game.running {
+        return Err(Error::Other("WoW Forever is already running.".into()));
+    }
+    crate::game::launch(&game)
+}
+
+#[tauri::command]
 pub fn open_folder(core: Ctx, which: String) -> Result<()> {
     let path = match which.as_str() {
         "logs" => core.log_dir.clone(),

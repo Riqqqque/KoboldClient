@@ -23,6 +23,7 @@ export const app = $state({
   appUpdate: null as Update | null,
   toasts: [] as Toast[],
   bannerDismissed: false,
+  launching: false,
 });
 
 let toastSeq = 0;
@@ -104,6 +105,25 @@ export async function updateAll() {
   const ids = app.installed.filter((a) => a.new_version && !a.pinned).map((a) => [a.id, a.name] as const);
   for (const [id, name] of ids) {
     await installAddon(id, name);
+  }
+}
+
+/** Starts the game, then watches for it to appear so the button can switch to "Playing". */
+export async function play() {
+  if (app.launching || app.state?.game?.running) return;
+  app.launching = true;
+  try {
+    const via = await api.launchGame();
+    toast(via === "battlenet" ? "Starting WoW Forever through Battle.net…" : "Starting WoW Forever…");
+    for (let i = 0; i < 30 && !app.state?.game?.running; i++) {
+      await new Promise((r) => setTimeout(r, 3000));
+      await refreshState().catch(() => {});
+    }
+    if (!app.state?.game?.running) api.log("warn", "game didn't appear within 90s of launch");
+  } catch (e) {
+    fail(e, "launch game");
+  } finally {
+    app.launching = false;
   }
 }
 

@@ -8,7 +8,7 @@ mockWindows("main");
 const gh = (login: string) => `https://avatars.githubusercontent.com/${login}?s=128`;
 
 const state: StateView = {
-  game: { root: "D:\\games\\World of Warcraft\\_forever_", version: "1.60.1.70790", addons_dir: "", running: true },
+  game: { root: "D:\\games\\World of Warcraft\\_forever_", version: "1.60.1.70790", addons_dir: "", running: !new URLSearchParams(location.search).has("idle") },
   settings: { game_root: "D:\\games\\World of Warcraft\\_forever_", theme: localStorage.getItem("kobold-theme") ?? "ember", check_updates_on_launch: true, auto_update_addons: false, verbose_logging: false },
   has_cf_key: new URLSearchParams(location.search).has("cf"),
   app_version: "0.1.0",
@@ -36,6 +36,9 @@ mockIPC((cmd, args) => {
   switch (cmd) {
     case "get_state":
       return state;
+    case "launch_game":
+      setTimeout(() => (state.game!.running = true), 4000);
+      return "battlenet";
     case "list_installed":
       return installed;
     case "check_updates":

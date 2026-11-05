@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- **Play button.** Start WoW Forever from the sidebar. It launches through Battle.net so you stay signed in, falls back to `Wow.exe` if Battle.net isn't installed, and switches to "Playing" once the game is up.
+- Undo after a delete now says so when the folders can't be restored (for example on drives without a Recycle Bin) instead of listing an addon whose files are gone.
+
 ## 0.1.0
 
 First release.

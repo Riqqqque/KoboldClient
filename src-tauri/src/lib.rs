@@ -74,6 +74,7 @@ pub fn run() {
             commands::undo_remove,
             commands::set_enabled,
             commands::set_pinned,
+            commands::launch_game,
             commands::open_folder,
             commands::export_diagnostics,
             commands::log_from_ui,
