@@ -1,5 +1,7 @@
 pub mod curseforge;
 pub mod github;
+pub mod wago;
+pub mod wowi;
 
 use serde::Serialize;
 
@@ -22,6 +24,8 @@ pub struct RemoteAddon {
     pub downloadable: bool,
     /// False when there is no Forever build to install.
     pub has_forever_build: bool,
+    /// A caveat shown with the result, e.g. that the source can't filter for Forever.
+    pub note: Option<String>,
 }
 
 /// Everything needed to download and record one addon version.

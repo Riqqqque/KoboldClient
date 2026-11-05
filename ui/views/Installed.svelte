@@ -1,9 +1,10 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type AddonView } from "../lib/api";
-  import { app, checkUpdates, fail, installAddon, installRequirements, joinNames, refreshInstalled, toast, updateAll } from "../lib/store.svelte";
+  import { app, checkUpdates, fail, installAddon, installRequirements, joinNames, linkHandInstalled, refreshErrors, refreshInstalled, SOURCE_LABEL, toast, updateAll } from "../lib/store.svelte";
   import AddonIcon from "../components/AddonIcon.svelte";
   import DeleteDialog from "../components/DeleteDialog.svelte";
+  import ErrorsDialog from "../components/ErrorsDialog.svelte";
   import Icon from "../components/Icon.svelte";
   import Toggle from "../components/Toggle.svelte";
 
@@ -21,7 +22,21 @@
       )
       .filter((a) => !query || a.name.toLowerCase().includes(query.toLowerCase())),
   );
-  const SOURCE_LABEL = { curseforge: "CurseForge", github: "GitHub", zip: "Zip file" } as const;
+  const errorCount = $derived(new Map((app.errors?.addons ?? []).filter((e) => e.id).map((e) => [e.id!, e.count])));
+  const showErrorBanner = $derived(!!app.errors && app.errors.total > 0 && !app.errors.seen);
+  const handCount = $derived(app.installed.filter((a) => !a.source || a.source === "zip").length);
+  let linking = $state(false);
+
+  async function openErrors() {
+    await refreshErrors();
+    app.errorsOpen = true;
+  }
+
+  async function link() {
+    linking = true;
+    await linkHandInstalled(true);
+    linking = false;
+  }
 
   async function toggle(a: AddonView, on: boolean) {
     try {
@@ -45,7 +60,7 @@
   }
 
   function stageLabel(stage: string) {
-    return stage === "download" ? "Downloading" : stage === "verify" ? "Verifying" : "Installing";
+    return stage === "download" ? "Downloading" : stage === "verify" ? "Verifying" : stage === "backup" ? "Backing up settings" : "Installing";
   }
 </script>
 
@@ -80,6 +95,33 @@
     {/each}
   </div>
 
+  {#if app.importing}
+    <div class="banner">
+      <Icon name="spinner" size={16} stroke={2.2} class="spin" />
+      Installing from your addon list: {app.importing.done + 1} of {app.importing.total}{app.importing.name ? ` · ${app.importing.name}` : ""}
+    </div>
+  {/if}
+
+  {#if showErrorBanner}
+    {@const names = app.errors!.addons.map((a) => a.name)}
+    <div class="banner bad">
+      <Icon name="alert" size={16} stroke={2} />
+      <span>
+        {joinNames(names.slice(0, 3))}{names.length > 3 ? ` and ${names.length - 3} more` : ""}
+        had Lua errors {app.state?.game?.running ? "this session" : "last time you played"}.
+      </span>
+      <button class="btn sm" onclick={openErrors}>View errors</button>
+    </div>
+  {/if}
+
+  {#if filter === "unmanaged" && handCount && app.state?.has_cf_key}
+    <div class="banner">
+      <Icon name="info" size={16} stroke={2} />
+      Kobold can't update addons you installed by hand unless it finds them on CurseForge. It checks each launch.
+      <button class="btn sm" style="margin-left:auto" disabled={linking} onclick={link}>{linking ? "Checking…" : "Check now"}</button>
+    </div>
+  {/if}
+
   {#if app.state?.game?.running && !app.bannerDismissed}
     <div class="banner">
       <Icon name="info" size={16} stroke={2} />
@@ -109,6 +151,11 @@
             {#if !a.source}<span class="tag mute" title="Kobold didn't install this one, so it can't update it">Installed by hand</span>{/if}
             {#if !a.built_for_forever}<span class="tag warn" title="No TOC for interface 16001. It may not load.">Not built for Forever</span>{/if}
             {#if a.missing}<span class="tag danger">Files missing</span>{/if}
+            {#if errorCount.get(a.id)}
+              <button class="tag danger tagbtn" title="Show the Lua errors {a.name} caused" onclick={openErrors}>
+                <Icon name="alert" size={10} stroke={2.4} /> {errorCount.get(a.id)} error{errorCount.get(a.id)! > 1 ? "s" : ""}
+              </button>
+            {/if}
             {#if a.missing_deps.length}<span class="tag danger" title="{a.name} won't work until {joinNames(a.missing_deps.map((d) => d.name))} {a.missing_deps.length > 1 ? 'are' : 'is'} installed">Needs {joinNames(a.missing_deps.map((d) => d.name))}</span>{/if}
             {#if a.pinned}<span class="tag mute"><Icon name="pin" size={10} stroke={2.2} /> Pinned</span>{/if}
           </b>
@@ -164,6 +211,10 @@
   <DeleteDialog addon={deleting} onclose={() => (deleting = null)} />
 {/if}
 
+{#if app.errorsOpen}
+  <ErrorsDialog onclose={() => (app.errorsOpen = false)} />
+{/if}
+
 <style>
   .list { flex: 1; overflow: auto; padding: 0 14px 16px; }
   .row {
@@ -179,6 +230,11 @@
   .ver { font-family: var(--mono); font-size: 11.5px; }
   .new { color: var(--accent); font-family: var(--mono); font-size: 11.5px; }
   .off .title { color: var(--muted); }
+  .tagbtn { border: 0; cursor: pointer; font-family: inherit; }
+  .tagbtn:hover { filter: brightness(1.15); }
+  .banner.bad { background: var(--danger-soft); }
+  .banner.bad > :global(svg) { color: var(--danger); }
+  .banner.bad .btn { margin-left: auto; }
   .act { display: flex; justify-content: flex-end; }
   .tools { position: relative; display: flex; gap: 2px; }
   .icon-btn { width: 30px; height: 30px; border-radius: 7px; border: 0; background: none; color: var(--faint); display: grid; place-items: center; }

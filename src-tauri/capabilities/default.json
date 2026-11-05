@@ -12,6 +12,7 @@
     "core:window:allow-show",
     "core:window:allow-set-focus",
     "dialog:allow-open",
+    "dialog:allow-save",
     "opener:default",
     "process:allow-restart",
     "updater:default"

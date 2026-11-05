@@ -1,8 +1,12 @@
+pub mod addonlist;
+pub mod backup;
 pub mod commands;
 pub mod error;
+pub mod fingerprint;
 pub mod game;
 pub mod install;
 pub mod logging;
+pub mod luaerrors;
 pub mod manifest;
 pub mod net;
 pub mod remove;
@@ -64,6 +68,19 @@ pub fn run() {
             commands::update_settings,
             commands::save_cf_key,
             commands::clear_cf_key,
+            commands::save_gh_token,
+            commands::clear_gh_token,
+            commands::save_wago_key,
+            commands::clear_wago_key,
+            commands::lua_errors,
+            commands::dismiss_lua_errors,
+            commands::list_backups,
+            commands::backup_now,
+            commands::restore_backup,
+            commands::delete_backup,
+            commands::link_hand_installed,
+            commands::export_addon_list,
+            commands::preview_addon_list,
             commands::list_installed,
             commands::search,
             commands::install,

@@ -17,6 +17,11 @@
     x: "M6 6l12 12 M18 6 6 18",
     key: "M14 10a4 4 0 1 0-1.2 2.8L20 20 M17 17l2-2 M15 15l1.5-1.5",
     spinner: "M12 3a9 9 0 1 0 9 9",
+    alert: "M12 4 2.5 20h19L12 4Z M12 10v4.5 M12 17.5v.01",
+    copy: "M9 9h10v11H9V9Z M5 15V4h10",
+    history: "M4 12a8 8 0 1 0 2.4-5.7L4 8.5 M4 4v4.5h4.5 M12 8v4.5l3 2",
+    save: "M5 4h11l3 3v13H5V4Z M8 4v5h7V4 M8 20v-6h8v6",
+    shield: "M12 3 5 6v5c0 4.5 3 8.2 7 10 4-1.8 7-5.5 7-10V6l-7-3Z",
   };
   let { name, size = 16, stroke = 1.8, class: cls = "" }: { name: string; size?: number; stroke?: number; class?: string } = $props();
 </script>

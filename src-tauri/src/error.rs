@@ -17,6 +17,10 @@ pub enum Error {
     NoCurseForgeKey,
     #[error("CurseForge didn't accept the API key. Check it in Settings.")]
     BadCurseForgeKey,
+    #[error("Add a Wago API key in Settings to use Wago.")]
+    NoWagoKey,
+    #[error("{0}")]
+    BadWagoKey(String),
     #[error("CurseForge doesn't list a Forever game version yet.")]
     NoForeverVersion,
     #[error("{name} can only be downloaded from the CurseForge website.")]
@@ -67,6 +71,8 @@ impl Error {
             Error::NotAGameFolder => "not_game_folder",
             Error::NoCurseForgeKey => "no_cf_key",
             Error::BadCurseForgeKey => "bad_cf_key",
+            Error::NoWagoKey => "no_wago_key",
+            Error::BadWagoKey(_) => "bad_wago_key",
             Error::NoForeverVersion => "no_forever_version",
             Error::DistributionBlocked { .. } => "distribution_blocked",
             Error::NoForeverBuild(_) => "no_forever_build",

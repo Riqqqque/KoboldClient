@@ -2,33 +2,69 @@
 //! so it never sits on disk as plain text.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::error::{Error, Result};
 use crate::util::write_atomic;
 
-fn key_path(data_dir: &Path) -> PathBuf {
-    data_dir.join("curseforge.key.bin")
+const CF_KEY: &str = "curseforge.key.bin";
+const GH_TOKEN: &str = "github.token.bin";
+const WAGO_KEY: &str = "wago.key.bin";
+
+fn save(data_dir: &Path, file: &str, value: &str) -> Result<()> {
+    let blob = protect(value.as_bytes())?;
+    write_atomic(&data_dir.join(file), &blob)
 }
 
-pub fn save_cf_key(data_dir: &Path, key: &str) -> Result<()> {
-    let blob = protect(key.as_bytes())?;
-    write_atomic(&key_path(data_dir), &blob)
-}
-
-pub fn load_cf_key(data_dir: &Path) -> Option<String> {
-    let blob = fs::read(key_path(data_dir)).ok()?;
+fn load(data_dir: &Path, file: &str) -> Option<String> {
+    let blob = fs::read(data_dir.join(file)).ok()?;
     match unprotect(&blob) {
         Ok(bytes) => String::from_utf8(bytes).ok().filter(|s| !s.is_empty()),
         Err(e) => {
-            tracing::warn!(error = %e, "stored CurseForge key couldn't be decrypted");
+            tracing::warn!(error = %e, file, "stored secret couldn't be decrypted");
             None
         }
     }
 }
 
+fn clear(data_dir: &Path, file: &str) {
+    let _ = fs::remove_file(data_dir.join(file));
+}
+
+pub fn save_cf_key(data_dir: &Path, key: &str) -> Result<()> {
+    save(data_dir, CF_KEY, key)
+}
+
+pub fn load_cf_key(data_dir: &Path) -> Option<String> {
+    load(data_dir, CF_KEY)
+}
+
 pub fn clear_cf_key(data_dir: &Path) {
-    let _ = fs::remove_file(key_path(data_dir));
+    clear(data_dir, CF_KEY)
+}
+
+pub fn save_gh_token(data_dir: &Path, token: &str) -> Result<()> {
+    save(data_dir, GH_TOKEN, token)
+}
+
+pub fn load_gh_token(data_dir: &Path) -> Option<String> {
+    load(data_dir, GH_TOKEN)
+}
+
+pub fn clear_gh_token(data_dir: &Path) {
+    clear(data_dir, GH_TOKEN)
+}
+
+pub fn save_wago_key(data_dir: &Path, key: &str) -> Result<()> {
+    save(data_dir, WAGO_KEY, key)
+}
+
+pub fn load_wago_key(data_dir: &Path) -> Option<String> {
+    load(data_dir, WAGO_KEY)
+}
+
+pub fn clear_wago_key(data_dir: &Path) {
+    clear(data_dir, WAGO_KEY)
 }
 
 #[cfg(windows)]
@@ -107,5 +143,10 @@ mod tests {
         let raw = std::fs::read(dir.path().join("curseforge.key.bin")).unwrap();
         assert!(!raw.windows(7).any(|w| w == b"abc$123"));
         assert_eq!(super::load_cf_key(dir.path()).as_deref(), Some("abc$123"));
+        assert!(super::load_gh_token(dir.path()).is_none());
+        super::save_gh_token(dir.path(), "ghp_x").unwrap();
+        assert_eq!(super::load_gh_token(dir.path()).as_deref(), Some("ghp_x"));
+        super::clear_gh_token(dir.path());
+        assert!(super::load_gh_token(dir.path()).is_none());
     }
 }

@@ -91,18 +91,57 @@ pub fn parse_repo(input: &str) -> Option<(String, String)> {
 
 pub struct GitHub<'a> {
     pub http: &'a reqwest::Client,
+    /// Optional personal access token. It only raises the hourly request limit; every
+    /// request works without one. Only ever sent to api.github.com.
+    pub token: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RateLimit {
+    rate: Rate,
+}
+
+#[derive(Debug, Deserialize)]
+struct Rate {
+    limit: u32,
 }
 
 impl GitHub<'_> {
-    async fn get<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Result<T> {
-        let resp = self
+    fn request(&self, url: &str) -> reqwest::RequestBuilder {
+        let mut req = self
             .http
             .get(url)
             .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .send()
-            .await?;
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        if let Some(t) = &self.token {
+            if url.starts_with(API) {
+                req = req.bearer_auth(t);
+            }
+        }
+        req
+    }
+
+    async fn get<T: for<'de> Deserialize<'de>>(&self, url: &str) -> Result<T> {
+        let resp = self.request(url).send().await?;
+        if resp.status().as_u16() == 401 && self.token.is_some() {
+            return Err(Error::Http(
+                "GitHub didn't accept the saved token. Replace or remove it in Settings.".into(),
+            ));
+        }
         Ok(check(resp).await?.json().await?)
+    }
+
+    /// Checks a token and returns the hourly request limit it gives.
+    pub async fn verify_token(&self) -> Result<u32> {
+        let resp = self.request(&format!("{API}/rate_limit")).send().await?;
+        if matches!(resp.status().as_u16(), 401 | 403) {
+            return Err(Error::Http(
+                "GitHub didn't accept that token. Check that it was copied whole and hasn't expired."
+                    .into(),
+            ));
+        }
+        let r: RateLimit = check(resp).await?.json().await?;
+        Ok(r.rate.limit)
     }
 
     pub async fn latest_release(&self, owner: &str, repo: &str) -> Result<Release> {
@@ -149,6 +188,7 @@ impl GitHub<'_> {
             project_url: info.html_url,
             downloadable: true,
             has_forever_build: true,
+            note: None,
         };
         Ok(Resolved {
             addon,

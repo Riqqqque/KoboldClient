@@ -2,7 +2,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
   import { api } from "./lib/api";
-  import { app, applyTheme, checkUpdates, fail, play, refreshInstalled, refreshState, repairRequirements, startListening, updateAll, type View } from "./lib/store.svelte";
+  import { app, applyTheme, checkUpdates, fail, linkHandInstalled, play, refreshErrors, refreshInstalled, refreshState, repairRequirements, startListening, updateAll, type View } from "./lib/store.svelte";
   import { checkAppUpdate, installAppUpdate } from "./lib/updater";
   import Icon from "./components/Icon.svelte";
   import TitleBar from "./components/TitleBar.svelte";
@@ -20,13 +20,27 @@
   async function afterGameReady() {
     await refreshState();
     await refreshInstalled();
-    if (app.state!.has_cf_key) await repairRequirements();
+    refreshErrors();
+    if (app.state!.has_cf_key) {
+      await repairRequirements();
+      await linkHandInstalled();
+    }
     const s = app.state!.settings;
     if (s.check_updates_on_launch || s.auto_update_addons) {
       await checkUpdates(true);
       if (s.auto_update_addons) await updateAll();
     }
   }
+
+  // The game writes a new log each launch and finishes it on exit, so re-read the
+  // errors whenever it starts or stops.
+  let wasRunning: boolean | null = null;
+  $effect(() => {
+    const running = app.state?.game?.running;
+    if (running === undefined) return;
+    if (wasRunning !== null && running !== wasRunning) refreshErrors();
+    wasRunning = running;
+  });
 
   onMount(() => {
     let timer: ReturnType<typeof setInterval> | undefined;
@@ -100,12 +114,14 @@
           <button
             class="play"
             class:playing={game.running}
-            disabled={game.running || app.launching || installing}
-            title={installing ? "Wait for the current install to finish" : "Start WoW Forever through Battle.net"}
+            disabled={game.running || app.launching || installing || !!app.importing}
+            title={installing && !app.launching ? "Wait for the current install to finish" : app.state?.settings.update_before_play ? "Update addons, then start WoW Forever" : "Start WoW Forever through Battle.net"}
             onclick={play}
           >
             {#if game.running}
               <span class="dot"></span> Playing
+            {:else if app.playUpdating || (app.launching && installing)}
+              <Icon name="spinner" size={16} stroke={2.4} class="spin" /> Updating addons…
             {:else if app.launching}
               <Icon name="spinner" size={16} stroke={2.4} class="spin" /> Starting…
             {:else}

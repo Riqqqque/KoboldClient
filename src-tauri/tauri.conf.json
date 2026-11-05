@@ -25,7 +25,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; img-src 'self' data: https://media.forgecdn.net https://*.forgecdn.net https://avatars.githubusercontent.com; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+      "csp": "default-src 'self'; img-src 'self' data: https://media.forgecdn.net https://*.forgecdn.net https://avatars.githubusercontent.com https://cdn.wago.io https://cdn-wow.mmoui.com; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
     }
   },
   "bundle": {

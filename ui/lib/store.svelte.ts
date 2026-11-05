@@ -1,11 +1,19 @@
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Update } from "@tauri-apps/plugin-updater";
-import { api, asError, type AddonView, type Progress, type StateView } from "./api";
+import { api, asError, type AddonView, type ErrorReport, type ListEntry, type Progress, type Source, type StateView } from "./api";
 
 export type View = "installed" | "browse" | "settings";
 export type ToastAction = { label: string; run: () => void };
 export type Toast = { id: number; message: string; kind: "info" | "error"; action?: ToastAction };
+
+export const SOURCE_LABEL: Record<Source, string> = {
+  curseforge: "CurseForge",
+  github: "GitHub",
+  zip: "Zip file",
+  wago: "Wago",
+  wowinterface: "WoWInterface",
+};
 
 export const THEMES = [
   { id: "ember", name: "Ember", blurb: "Warm charcoal and candle-gold", swatch: ["#14100d", "#eba340", "#f1e7da"] },
@@ -26,6 +34,13 @@ export const app = $state({
   launching: false,
   /** Ids of addons whose missing requirements are being installed. */
   fixing: {} as Record<string, boolean>,
+  /** Lua errors from the game's log for the last session. */
+  errors: null as ErrorReport | null,
+  errorsOpen: false,
+  /** Set while Play installs pending updates before starting the game. */
+  playUpdating: false,
+  /** Progress of installing a saved addon list. */
+  importing: null as { done: number; total: number; name: string } | null,
 });
 
 let toastSeq = 0;
@@ -67,18 +82,25 @@ export async function refreshInstalled() {
   }
 }
 
-export async function checkUpdates(silent = false) {
-  if (app.checking) return;
+let checkInFlight: Promise<void> | null = null;
+
+/** Checks for addon updates. A second call while one is running waits for that one. */
+export function checkUpdates(silent = false): Promise<void> {
+  if (checkInFlight) return checkInFlight;
   app.checking = true;
-  try {
-    const found = await api.checkUpdates();
-    await refreshInstalled();
-    if (!silent) toast(found.length ? `${found.length} update${found.length > 1 ? "s" : ""} available` : "Everything is up to date");
-  } catch (e) {
-    if (!silent) fail(e, "check updates");
-  } finally {
-    app.checking = false;
-  }
+  checkInFlight = (async () => {
+    try {
+      const found = await api.checkUpdates();
+      await refreshInstalled();
+      if (!silent) toast(found.length ? `${found.length} update${found.length > 1 ? "s" : ""} available` : "Everything is up to date");
+    } catch (e) {
+      if (!silent) fail(e, "check updates");
+    } finally {
+      app.checking = false;
+      checkInFlight = null;
+    }
+  })();
+  return checkInFlight;
 }
 
 /** "A", "A and B", "A, B and C". */
@@ -104,7 +126,11 @@ export async function installAddon(id: string, _label: string) {
     const { addon: v, also_installed } = await api.install(id);
     await refreshInstalled();
     const extra = also_installed.length ? `, along with ${joinNames(also_installed)} which it needs` : "";
-    toast(`${v.name} ${v.version ? v.version + " " : ""}installed${extra}`, { ms: extra ? 6000 : undefined });
+    if (!v.built_for_forever) {
+      toast(`${v.name} installed, but it isn't built for Forever, so the game may not load it. Remove it if it doesn't work.`, { kind: "error", ms: 9000 });
+    } else {
+      toast(`${v.name} ${v.version ? v.version + " " : ""}installed${extra}`, { ms: extra ? 6000 : undefined });
+    }
     return v;
   } catch (e) {
     installFailed(`install ${id}`, e);
@@ -144,6 +170,77 @@ export async function repairRequirements() {
   }
 }
 
+/** Reads this session's Lua errors from the game log. Quiet on failure. */
+export async function refreshErrors() {
+  try {
+    app.errors = await api.luaErrors();
+  } catch (e) {
+    api.log("warn", `lua errors: [${asError(e).code}] ${asError(e).message}`);
+  }
+}
+
+export async function dismissErrors() {
+  if (!app.errors) return;
+  try {
+    await api.dismissLuaErrors(app.errors.session);
+    app.errors = { ...app.errors, seen: true };
+  } catch (e) {
+    fail(e, "dismiss errors");
+  }
+}
+
+/** Links hand-installed addons that CurseForge recognises. Quiet unless it linked some. */
+export async function linkHandInstalled(announceNone = false) {
+  try {
+    const { linked } = await api.linkHandInstalled();
+    if (linked.length) {
+      await refreshInstalled();
+      toast(`Found ${joinNames(linked)} on CurseForge. ${linked.length > 1 ? "They" : "It"} can be updated from Kobold now.`, { ms: 8000 });
+    } else if (announceNone) {
+      toast("None of the addons installed by hand were found on CurseForge.");
+    }
+    return linked;
+  } catch (e) {
+    if (announceNone) fail(e, "link hand-installed");
+    else api.log("warn", `link hand-installed: [${asError(e).code}] ${asError(e).message}`);
+    return [];
+  }
+}
+
+/** Installs the entries of a saved addon list one at a time, then applies their
+ *  pinned and disabled states. */
+export async function importAddons(entries: ListEntry[]) {
+  if (app.importing) return;
+  const failed: string[] = [];
+  let installed = 0;
+  app.importing = { done: 0, total: entries.length, name: "" };
+  try {
+    for (const e of entries) {
+      app.importing = { done: app.importing.done, total: entries.length, name: e.name };
+      if (!app.installed.some((a) => a.id === e.id)) {
+        try {
+          await api.install(e.id);
+          installed++;
+          if (e.pinned) await api.setPinned(e.id, true);
+          if (!e.enabled) await api.setEnabled(e.id, false);
+        } catch (err) {
+          const x = asError(err);
+          api.log("warn", `import ${e.id}: [${x.code}] ${x.message}`);
+          failed.push(`${e.name}: ${x.message}`);
+        } finally {
+          delete app.progress[e.id];
+        }
+        await refreshInstalled();
+      }
+      app.importing = { done: app.importing.done + 1, total: entries.length, name: e.name };
+    }
+  } finally {
+    app.importing = null;
+  }
+  toast(`Installed ${installed} addon${installed === 1 ? "" : "s"} from the list${failed.length ? `, ${failed.length} couldn't be installed` : ""}`, { ms: 7000 });
+  for (const f of failed.slice(0, 3)) toast(f, { kind: "error", ms: 9000 });
+}
+
 export async function updateAll() {
   const ids = app.installed.filter((a) => a.new_version && !a.pinned).map((a) => [a.id, a.name] as const);
   for (const [id, name] of ids) {
@@ -156,6 +253,16 @@ export async function play() {
   if (app.launching || app.state?.game?.running) return;
   app.launching = true;
   try {
+    if (app.state?.settings.update_before_play) {
+      app.playUpdating = true;
+      try {
+        // Don't hold the game hostage to a slow network: give the check 20 seconds.
+        await Promise.race([checkUpdates(true), new Promise((r) => setTimeout(r, 20000))]);
+        if (app.installed.some((a) => a.new_version && !a.pinned)) await updateAll();
+      } finally {
+        app.playUpdating = false;
+      }
+    }
     const via = await api.launchGame();
     toast(via === "battlenet" ? "Starting WoW Forever through Battle.net…" : "Starting WoW Forever…");
     for (let i = 0; i < 30 && !app.state?.game?.running; i++) {

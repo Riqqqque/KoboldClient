@@ -14,6 +14,12 @@ pub struct Settings {
     pub check_updates_on_launch: bool,
     pub auto_update_addons: bool,
     pub verbose_logging: bool,
+    /// Zip the WTF folder before addon updates, when it changed since the last backup.
+    pub backup_before_update: bool,
+    /// The Play button installs pending addon updates first.
+    pub update_before_play: bool,
+    /// The Lua error session the user last dismissed (`<log start>|<count>`).
+    pub lua_errors_seen: Option<String>,
 }
 
 impl Default for Settings {
@@ -24,6 +30,9 @@ impl Default for Settings {
             check_updates_on_launch: true,
             auto_update_addons: false,
             verbose_logging: false,
+            backup_before_update: true,
+            update_before_play: true,
+            lua_errors_seen: None,
         }
     }
 }

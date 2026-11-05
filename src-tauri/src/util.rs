@@ -65,6 +65,16 @@ pub fn write_atomic(path: &Path, data: &[u8]) -> Result<()> {
     rename_retry(&tmp, path)
 }
 
+/// `v1.2.3`, `V.1.2`, ` 1.2 ` all become `1.2.3` / `1.2`; other text is kept.
+pub fn clean_version(s: &str) -> String {
+    let t = s.trim();
+    let t = match t.strip_prefix(['v', 'V']) {
+        Some(rest) if rest.starts_with(|c: char| c.is_ascii_digit() || c == '.') => rest,
+        _ => t,
+    };
+    t.trim_start_matches(['.', ' ']).to_string()
+}
+
 pub fn eq_ignore_case(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
@@ -126,6 +136,14 @@ pub fn strip_wow_markup(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cleans_versions() {
+        assert_eq!(clean_version("v.0.10.0"), "0.10.0");
+        assert_eq!(clean_version("V2.1"), "2.1");
+        assert_eq!(clean_version(" 1.60.1 "), "1.60.1");
+        assert_eq!(clean_version("vanilla-1"), "vanilla-1");
+    }
 
     #[test]
     fn strips_colour_codes() {

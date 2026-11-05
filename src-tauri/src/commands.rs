@@ -5,10 +5,13 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::addonlist::ImportPreview;
+use crate::backup::Backup;
 use crate::error::{Error, Result};
 use crate::game::GameInfo;
 use crate::service::{
-    AddonView, Core, DeletePreview, InstallOutcome, Progress, Removed, RepairOutcome, StateView,
+    AddonView, Core, DeletePreview, ErrorReport, InstallOutcome, LinkOutcome, Progress, Removed,
+    RepairOutcome, StateView,
 };
 use crate::settings::Settings;
 use crate::sources::RemoteAddon;
@@ -42,10 +45,13 @@ pub fn set_game_root(core: Ctx, path: PathBuf) -> Result<GameInfo> {
 #[tauri::command]
 pub fn update_settings(core: Ctx, settings: Settings) -> Result<Settings> {
     core.update_settings(|s| {
-        // The game folder is only changed through set_game_root, which validates it.
+        // The game folder is only changed through set_game_root, which validates it,
+        // and the dismissed-errors marker only through dismiss_lua_errors.
         let root = s.game_root.clone();
+        let seen = s.lua_errors_seen.clone();
         *s = settings;
         s.game_root = root;
+        s.lua_errors_seen = seen;
     })
 }
 
@@ -57,6 +63,74 @@ pub async fn save_cf_key(core: Ctx<'_>, key: String) -> Result<()> {
 #[tauri::command]
 pub fn clear_cf_key(core: Ctx) {
     core.clear_cf_key()
+}
+
+#[tauri::command]
+pub async fn save_gh_token(core: Ctx<'_>, token: String) -> Result<u32> {
+    core.save_gh_token(&token).await
+}
+
+#[tauri::command]
+pub fn clear_gh_token(core: Ctx) {
+    core.clear_gh_token()
+}
+
+#[tauri::command]
+pub async fn save_wago_key(core: Ctx<'_>, key: String) -> Result<()> {
+    core.save_wago_key(&key).await
+}
+
+#[tauri::command]
+pub fn clear_wago_key(core: Ctx) {
+    core.clear_wago_key()
+}
+
+#[tauri::command]
+pub async fn lua_errors(core: Ctx<'_>) -> Result<ErrorReport> {
+    let c = core.inner().clone();
+    tokio::task::spawn_blocking(move || c.lua_errors())
+        .await
+        .map_err(|e| Error::Other(e.to_string()))?
+}
+
+#[tauri::command]
+pub fn dismiss_lua_errors(core: Ctx, session: String) -> Result<()> {
+    core.dismiss_lua_errors(&session)
+}
+
+#[tauri::command]
+pub fn list_backups(core: Ctx) -> Vec<Backup> {
+    core.list_backups()
+}
+
+#[tauri::command]
+pub async fn backup_now(core: Ctx<'_>) -> Result<Backup> {
+    core.backup_now().await
+}
+
+#[tauri::command]
+pub async fn restore_backup(core: Ctx<'_>, name: String) -> Result<()> {
+    core.restore_backup(&name).await
+}
+
+#[tauri::command]
+pub fn delete_backup(core: Ctx, name: String) -> Result<()> {
+    core.delete_backup(&name)
+}
+
+#[tauri::command]
+pub async fn link_hand_installed(core: Ctx<'_>) -> Result<LinkOutcome> {
+    core.link_hand_installed().await
+}
+
+#[tauri::command]
+pub fn export_addon_list(core: Ctx, path: PathBuf) -> Result<usize> {
+    core.export_addon_list(&path)
+}
+
+#[tauri::command]
+pub fn preview_addon_list(core: Ctx, path: PathBuf) -> Result<ImportPreview> {
+    core.preview_addon_list(&path)
 }
 
 #[tauri::command]
@@ -142,6 +216,7 @@ pub fn open_folder(core: Ctx, which: String) -> Result<()> {
     let path = match which.as_str() {
         "logs" => core.log_dir.clone(),
         "addons" => core.game().ok_or(Error::NoGame)?.addons_dir,
+        "backups" => core.backups_dir(),
         _ => return Err(Error::NotFound("Unknown folder".into())),
     };
     std::fs::create_dir_all(&path).map_err(|e| Error::io("create", &path, e))?;

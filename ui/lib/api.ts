@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export type Source = "curseforge" | "github" | "zip";
+export type Source = "curseforge" | "github" | "zip" | "wago" | "wowinterface";
+export type SearchSource = "curseforge" | "wago" | "wowinterface" | "github";
 
 export interface GameInfo {
   root: string;
@@ -15,12 +16,17 @@ export interface Settings {
   check_updates_on_launch: boolean;
   auto_update_addons: boolean;
   verbose_logging: boolean;
+  backup_before_update: boolean;
+  update_before_play: boolean;
+  lua_errors_seen: string | null;
 }
 
 export interface StateView {
   game: GameInfo | null;
   settings: Settings;
   has_cf_key: boolean;
+  has_gh_token: boolean;
+  has_wago_key: boolean;
   app_version: string;
   log_dir: string;
 }
@@ -72,11 +78,12 @@ export interface RemoteAddon {
   project_url: string;
   downloadable: boolean;
   has_forever_build: boolean;
+  note: string | null;
 }
 
 export interface Progress {
   id: string;
-  stage: "download" | "verify" | "install" | "done" | "error";
+  stage: "download" | "verify" | "backup" | "install" | "done" | "error";
   pct: number;
 }
 
@@ -91,6 +98,59 @@ export interface DeletePreview {
 export interface Removed {
   token: string;
   name: string;
+}
+
+export interface ErrorGroup {
+  message: string;
+  count: number;
+  first: string;
+  last: string;
+  stack: string[];
+  blame: "code" | "taint";
+}
+
+export interface AddonErrors {
+  id: string | null;
+  name: string;
+  folder: string;
+  source: Source | null;
+  enabled: boolean;
+  new_version: string | null;
+  project_url: string | null;
+  count: number;
+  groups: ErrorGroup[];
+}
+
+export interface ErrorReport {
+  session: string;
+  started: string | null;
+  seen: boolean;
+  total: number;
+  addons: AddonErrors[];
+  other: ErrorGroup[];
+}
+
+export interface Backup {
+  name: string;
+  created: number;
+  kind: "auto" | "manual" | "restore";
+  bytes: number;
+}
+
+export interface ListEntry {
+  id: string;
+  name: string;
+  source: Source | null;
+  version: string | null;
+  project_url: string | null;
+  pinned: boolean;
+  enabled: boolean;
+}
+
+export interface ImportPreview {
+  to_install: ListEntry[];
+  present: ListEntry[];
+  manual: ListEntry[];
 }
 
 export interface AppError {
@@ -123,8 +183,21 @@ export const api = {
   updateSettings: (settings: Settings) => call<Settings>("update_settings", { settings }),
   saveCfKey: (key: string) => call<void>("save_cf_key", { key }),
   clearCfKey: () => call<void>("clear_cf_key"),
+  saveGhToken: (token: string) => call<number>("save_gh_token", { token }),
+  clearGhToken: () => call<void>("clear_gh_token"),
+  saveWagoKey: (key: string) => call<void>("save_wago_key", { key }),
+  clearWagoKey: () => call<void>("clear_wago_key"),
+  luaErrors: () => call<ErrorReport>("lua_errors"),
+  dismissLuaErrors: (session: string) => call<void>("dismiss_lua_errors", { session }),
+  listBackups: () => call<Backup[]>("list_backups"),
+  backupNow: () => call<Backup>("backup_now"),
+  restoreBackup: (name: string) => call<void>("restore_backup", { name }),
+  deleteBackup: (name: string) => call<void>("delete_backup", { name }),
+  linkHandInstalled: () => call<{ linked: string[] }>("link_hand_installed"),
+  exportAddonList: (path: string) => call<number>("export_addon_list", { path }),
+  previewAddonList: (path: string) => call<ImportPreview>("preview_addon_list", { path }),
   installed: () => call<AddonView[]>("list_installed"),
-  search: (source: "curseforge" | "github", query: string, sort: string) =>
+  search: (source: SearchSource, query: string, sort: string) =>
     call<RemoteAddon[]>("search", { source, query, sort }),
   install: (id: string) => call<InstallOutcome>("install", { id }),
   installRequirements: (id: string) => call<string[]>("install_requirements", { id }),
@@ -137,7 +210,7 @@ export const api = {
   setEnabled: (id: string, enabled: boolean) => call<void>("set_enabled", { id, enabled }),
   setPinned: (id: string, pinned: boolean) => call<void>("set_pinned", { id, pinned }),
   launchGame: () => call<"battlenet" | "direct">("launch_game"),
-  openFolder: (which: "logs" | "addons") => call<void>("open_folder", { which }),
+  openFolder: (which: "logs" | "addons" | "backups") => call<void>("open_folder", { which }),
   exportDiagnostics: () => call<string>("export_diagnostics"),
   log: (level: "info" | "warn" | "error", message: string) =>
     invoke("log_from_ui", { level, message }).catch(() => {}),

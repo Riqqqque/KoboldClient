@@ -114,6 +114,39 @@ struct File {
     is_available: bool,
     #[serde(default)]
     dependencies: Vec<Dependency>,
+    /// The addon folders in this file, with their CurseForge fingerprints.
+    #[serde(default)]
+    modules: Vec<Module>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Module {
+    pub name: String,
+    #[serde(default)]
+    pub fingerprint: u64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FingerprintResult {
+    #[serde(default)]
+    exact_matches: Vec<FingerprintMatch>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FingerprintMatch {
+    id: u64,
+    file: File,
+}
+
+/// A CurseForge file whose folders matched folders on disk.
+#[derive(Debug, Clone)]
+pub struct MatchedFile {
+    pub mod_id: u64,
+    pub file_id: u64,
+    pub display_name: String,
+    pub modules: Vec<Module>,
+    pub requires: Vec<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -350,6 +383,50 @@ impl CurseForge<'_> {
             .collect())
     }
 
+    /// Looks up folder fingerprints. Only exact matches are returned: every folder of
+    /// the matched file has the same fingerprint as one that was sent.
+    pub async fn match_fingerprints(&self, fingerprints: &[u32]) -> Result<Vec<MatchedFile>> {
+        if fingerprints.is_empty() {
+            return Ok(vec![]);
+        }
+        let r: FingerprintResult = self
+            .post(
+                &format!("/v1/fingerprints/{WOW_GAME_ID}"),
+                serde_json::json!({ "fingerprints": fingerprints }),
+            )
+            .await?;
+        Ok(r.exact_matches
+            .into_iter()
+            .map(|m| MatchedFile {
+                mod_id: if m.file.mod_id != 0 {
+                    m.file.mod_id
+                } else {
+                    m.id
+                },
+                file_id: m.file.id,
+                requires: m.file.required_mods(),
+                display_name: m.file.display_name,
+                modules: m.file.modules,
+            })
+            .collect())
+    }
+
+    /// Folder fingerprints of specific files, as CurseForge lists them.
+    pub async fn file_modules(&self, file_ids: &[u64]) -> Result<HashMap<u64, Vec<Module>>> {
+        if file_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let files: Vec<File> = self
+            .post("/v1/mods/files", serde_json::json!({ "fileIds": file_ids }))
+            .await?;
+        Ok(files.into_iter().map(|f| (f.id, f.modules)).collect())
+    }
+
+    /// Names for a set of mod ids, as requirements.
+    pub async fn named(&self, ids: &[u64]) -> Result<Vec<Requirement>> {
+        self.requirements(ids).await
+    }
+
     /// Required addons for installed files, keyed by file id. Used to fill in lists
     /// written before Kobold tracked dependencies.
     pub async fn file_requirements(
@@ -382,7 +459,7 @@ impl CurseForge<'_> {
 }
 
 /// CurseForge display names are often "Name-1.2.3" or "Name v1.2.3"; keep the version.
-fn clean_display_name(display: &str, name: &str) -> String {
+pub fn clean_display_name(display: &str, name: &str) -> String {
     let d = display.trim();
     let stripped = d
         .strip_prefix(name)
@@ -418,6 +495,7 @@ pub fn to_remote(m: &Mod, forever: u32) -> RemoteAddon {
             .unwrap_or_else(|| format!("https://www.curseforge.com/wow/addons/{}", m.id)),
         downloadable: m.allow_mod_distribution != Some(false),
         has_forever_build: CurseForge::latest_forever_file(m, forever).is_some(),
+        note: None,
     }
 }
 

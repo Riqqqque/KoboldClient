@@ -17,11 +17,13 @@ pub enum Source {
     CurseForge,
     GitHub,
     Zip,
+    Wago,
+    WowInterface,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledAddon {
-    /// `cf:<modId>`, `gh:<owner>/<repo>` or `zip:<folder>`.
+    /// `cf:<modId>`, `gh:<owner>/<repo>`, `wago:<id>`, `wowi:<id>` or `zip:<folder>`.
     pub id: String,
     pub name: String,
     #[serde(default)]
@@ -33,7 +35,8 @@ pub struct InstalledAddon {
     /// CurseForge file id, used for update checks.
     #[serde(default)]
     pub file_id: Option<u64>,
-    /// GitHub release tag, used for update checks.
+    /// GitHub release tag, Wago release label or WoWInterface file date; used for
+    /// update checks.
     #[serde(default)]
     pub release_tag: Option<String>,
     #[serde(default)]

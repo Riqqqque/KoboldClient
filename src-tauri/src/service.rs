@@ -10,17 +10,23 @@ use serde::Serialize;
 use tokio::sync::OnceCell;
 use tracing::Instrument;
 
+use crate::addonlist::{self, ImportPreview};
+use crate::backup::{self, Backup};
 use crate::error::{Error, Result};
+use crate::fingerprint;
 use crate::game::{self, GameInfo};
 use crate::install;
 use crate::logging::LogHandle;
+use crate::luaerrors::{self, Blame};
 use crate::manifest::{InstalledAddon, Manifest, Requirement, Source, Store};
 use crate::net;
 use crate::remove;
 use crate::secret;
 use crate::settings::{self, Settings};
-use crate::sources::curseforge::{CurseForge, Sort};
+use crate::sources::curseforge::{self, CurseForge, Sort};
 use crate::sources::github::{self, GitHub};
+use crate::sources::wago::{self, Wago};
+use crate::sources::wowi::{self, WowInterface};
 use crate::sources::{RemoteAddon, Resolved};
 use crate::toc;
 use crate::util::{eq_ignore_case, now_secs, op_id, remove_dir_quiet};
@@ -28,7 +34,7 @@ use crate::util::{eq_ignore_case, now_secs, op_id, remove_dir_quiet};
 #[derive(Debug, Clone, Serialize)]
 pub struct Progress {
     pub id: String,
-    /// "download", "verify", "install", "done", "error"
+    /// "download", "verify", "backup", "install", "done", "error"
     pub stage: &'static str,
     pub pct: u8,
 }
@@ -76,6 +82,8 @@ pub struct StateView {
     pub game: Option<GameInfo>,
     pub settings: Settings,
     pub has_cf_key: bool,
+    pub has_gh_token: bool,
+    pub has_wago_key: bool,
     pub app_version: &'static str,
     pub log_dir: PathBuf,
 }
@@ -89,6 +97,53 @@ pub struct DeletePreview {
     pub saved_variables: usize,
     /// Installed addons that list this one as required.
     pub needed_by: Vec<String>,
+}
+
+/// Lua errors from the last game session, grouped by the addon that caused them.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ErrorReport {
+    /// Identifies this session and error count, for "dismiss".
+    pub session: String,
+    /// When the session started, as the game wrote it (`11/4 22:03:50`).
+    pub started: Option<String>,
+    /// The user already dismissed exactly this report.
+    pub seen: bool,
+    /// Errors tied to an addon.
+    pub total: usize,
+    pub addons: Vec<AddonErrors>,
+    /// Errors that don't point at any addon (macros, scripts, the game itself).
+    pub other: Vec<ErrorGroup>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AddonErrors {
+    /// Id of the installed addon, if the folder belongs to one.
+    pub id: Option<String>,
+    pub name: String,
+    pub folder: String,
+    pub source: Option<Source>,
+    pub enabled: bool,
+    pub new_version: Option<String>,
+    pub project_url: Option<String>,
+    pub count: usize,
+    pub groups: Vec<ErrorGroup>,
+}
+
+/// One distinct error message and how often it happened.
+#[derive(Debug, Clone, Serialize)]
+pub struct ErrorGroup {
+    pub message: String,
+    pub count: usize,
+    pub first: String,
+    pub last: String,
+    pub stack: Vec<String>,
+    pub blame: Blame,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct LinkOutcome {
+    /// Names of hand-installed addons now linked to CurseForge.
+    pub linked: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -112,6 +167,7 @@ pub struct Core {
     manifest: Mutex<Manifest>,
     store: Store,
     cf_type: OnceCell<u32>,
+    wowi_list: wowi::ListCache,
     updates: Mutex<HashMap<String, Resolved>>,
     undo: Mutex<HashMap<String, UndoEntry>>,
     op_lock: tokio::sync::Mutex<()>,
@@ -135,6 +191,7 @@ impl Core {
             manifest: Mutex::new(manifest),
             store,
             cf_type: OnceCell::new(),
+            wowi_list: wowi::ListCache::default(),
             updates: Mutex::new(HashMap::new()),
             undo: Mutex::new(HashMap::new()),
             op_lock: tokio::sync::Mutex::new(()),
@@ -145,6 +202,7 @@ impl Core {
         };
         if let Some(g) = core.game() {
             install::recover(&g);
+            backup::recover(&g);
         }
         core
     }
@@ -169,6 +227,8 @@ impl Core {
             game: self.game(),
             settings: self.settings(),
             has_cf_key: secret::load_cf_key(&self.data_dir).is_some(),
+            has_gh_token: secret::load_gh_token(&self.data_dir).is_some(),
+            has_wago_key: secret::load_wago_key(&self.data_dir).is_some(),
             app_version: env!("CARGO_PKG_VERSION"),
             log_dir: self.log_dir.clone(),
         }
@@ -193,6 +253,7 @@ impl Core {
         let root = info.root.clone();
         self.update_settings(|s| s.game_root = Some(root))?;
         install::recover(&info);
+        backup::recover(&info);
         Ok(info)
     }
 
@@ -229,6 +290,75 @@ impl Core {
     pub fn clear_cf_key(&self) {
         secret::clear_cf_key(&self.data_dir);
         tracing::info!("CurseForge key removed");
+    }
+
+    // ---------- Wago key ----------
+
+    fn wago_key(&self) -> Result<String> {
+        secret::load_wago_key(&self.data_dir).ok_or(Error::NoWagoKey)
+    }
+
+    pub async fn save_wago_key(&self, key: &str) -> Result<()> {
+        let key = key.trim();
+        if key.len() < 16 || key.len() > 400 || !key.chars().all(|c| c.is_ascii_graphic()) {
+            return Err(Error::BadWagoKey(
+                "That doesn't look like a Wago API key. Copy the whole key from Wago.".into(),
+            ));
+        }
+        Wago {
+            http: &self.http,
+            key,
+        }
+        .verify_key()
+        .await?;
+        secret::save_wago_key(&self.data_dir, key)?;
+        tracing::info!("Wago key saved");
+        Ok(())
+    }
+
+    pub fn clear_wago_key(&self) {
+        secret::clear_wago_key(&self.data_dir);
+        tracing::info!("Wago key removed");
+    }
+
+    fn wowi(&self) -> WowInterface<'_> {
+        WowInterface {
+            http: &self.http,
+            cache: &self.wowi_list,
+        }
+    }
+
+    // ---------- GitHub token ----------
+
+    fn gh(&self) -> GitHub<'_> {
+        GitHub {
+            http: &self.http,
+            token: secret::load_gh_token(&self.data_dir),
+        }
+    }
+
+    /// Checks the token with GitHub before saving it. Returns the hourly request limit.
+    pub async fn save_gh_token(&self, token: &str) -> Result<u32> {
+        let token = token.trim();
+        if token.len() < 20 || token.len() > 400 || !token.chars().all(|c| c.is_ascii_graphic()) {
+            return Err(Error::Http(
+                "That doesn't look like a GitHub token. Copy the whole token from GitHub.".into(),
+            ));
+        }
+        let limit = GitHub {
+            http: &self.http,
+            token: Some(token.to_string()),
+        }
+        .verify_token()
+        .await?;
+        secret::save_gh_token(&self.data_dir, token)?;
+        tracing::info!(limit, "GitHub token saved");
+        Ok(limit)
+    }
+
+    pub fn clear_gh_token(&self) {
+        secret::clear_gh_token(&self.data_dir);
+        tracing::info!("GitHub token removed");
     }
 
     // ---------- listing ----------
@@ -284,13 +414,25 @@ impl Core {
             _ => Sort::Popular,
         };
         match source {
+            "wago" => {
+                let key = self.wago_key()?;
+                let w = Wago {
+                    http: &self.http,
+                    key: &key,
+                };
+                if query.contains("wago.io/") {
+                    let slug = wago::parse_ref(query)
+                        .ok_or_else(|| Error::NotFound("That isn't a Wago addon link.".into()))?;
+                    return Ok(vec![w.resolve(&slug).await?.addon]);
+                }
+                w.search(query).await
+            }
+            "wowinterface" => self.wowi().search(query).await,
             "github" => {
                 let (o, r) = github::parse_repo(query).ok_or_else(|| {
                     Error::NotFound("Enter a GitHub repository, like owner/name.".into())
                 })?;
-                Ok(vec![
-                    GitHub { http: &self.http }.resolve(&o, &r).await?.addon,
-                ])
+                Ok(vec![self.gh().resolve(&o, &r).await?.addon])
             }
             _ => {
                 let key = self.cf_key()?;
@@ -308,10 +450,24 @@ impl Core {
                 .map_err(|_| Error::NotFound(format!("Bad addon id {id}")))?;
             let key = self.cf_key()?;
             self.cf(&key).resolve(mod_id).await
+        } else if let Some(rest) = id.strip_prefix("wago:") {
+            let r = wago::parse_ref(rest)
+                .ok_or_else(|| Error::NotFound(format!("Bad addon id {id}")))?;
+            let key = self.wago_key()?;
+            Wago {
+                http: &self.http,
+                key: &key,
+            }
+            .resolve(&r)
+            .await
+        } else if let Some(rest) = id.strip_prefix("wowi:") {
+            let n = wowi::parse_ref(rest)
+                .ok_or_else(|| Error::NotFound(format!("Bad addon id {id}")))?;
+            self.wowi().resolve(n).await
         } else if let Some(rest) = id.strip_prefix("gh:") {
             let (o, r) = github::parse_repo(rest)
                 .ok_or_else(|| Error::NotFound(format!("Bad addon id {id}")))?;
-            GitHub { http: &self.http }.resolve(&o, &r).await
+            self.gh().resolve(&o, &r).await
         } else {
             Err(Error::NotFound(
                 "This addon wasn't installed from an online source.".into(),
@@ -503,11 +659,15 @@ impl Core {
         report("download", 0);
         let dest = self.cache_dir.join("dl").join(format!("{}.zip", op_id()));
         let mut last_pct = 0u8;
+        let wago_key = (r.addon.source == Source::Wago)
+            .then(|| secret::load_wago_key(&self.data_dir))
+            .flatten();
         let dl = net::download(
             &self.http,
             &r.download_url,
             &dest,
             &r.expected,
+            wago_key.as_deref(),
             |got, total| {
                 if let Some(t) = total.filter(|t| *t > 0) {
                     let pct = ((got * 80) / t).min(80) as u8;
@@ -641,6 +801,10 @@ impl Core {
         addon.folders = staged.iter().map(|f| f.name.clone()).collect();
 
         let previous = self.manifest.lock().unwrap().get(&addon.id).cloned();
+        if previous.is_some() {
+            report("backup", 88);
+            self.auto_backup(game)?;
+        }
         if let Some(prev) = &previous {
             addon.enabled = prev.enabled;
             if !prev.enabled {
@@ -761,7 +925,7 @@ impl Core {
             }
         }
 
-        let gh = GitHub { http: &self.http };
+        let gh = self.gh();
         for a in addons.iter().filter(|a| a.source == Source::GitHub) {
             let Some((o, r)) = a.id.strip_prefix("gh:").and_then(github::parse_repo) else {
                 continue;
@@ -779,6 +943,64 @@ impl Core {
                 Err(e) => tracing::warn!(addon = %a.id, error = %e, "update check failed"),
             }
         }
+        let wago_addons: Vec<&InstalledAddon> =
+            addons.iter().filter(|a| a.source == Source::Wago).collect();
+        if !wago_addons.is_empty() {
+            match self.wago_key() {
+                Ok(key) => {
+                    let w = Wago {
+                        http: &self.http,
+                        key: &key,
+                    };
+                    for a in wago_addons {
+                        let Some(id) = a.id.strip_prefix("wago:") else {
+                            continue;
+                        };
+                        match w.resolve(id).await {
+                            Ok(r) if r.release_tag != a.release_tag => {
+                                found.insert(a.id.clone(), r);
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                tracing::warn!(addon = %a.id, error = %e, "update check failed")
+                            }
+                        }
+                    }
+                }
+                Err(_) => tracing::info!("no Wago key; skipping Wago update checks"),
+            }
+        }
+
+        let wowi_addons: Vec<(u64, &InstalledAddon)> = addons
+            .iter()
+            .filter(|a| a.source == Source::WowInterface)
+            .filter_map(|a| Some((wowi::parse_ref(a.id.strip_prefix("wowi:")?)?, a)))
+            .collect();
+        if !wowi_addons.is_empty() {
+            let wi = self.wowi();
+            let ids: Vec<u64> = wowi_addons.iter().map(|(n, _)| *n).collect();
+            match wi.versions(&ids).await {
+                Ok(stamps) => {
+                    for (n, a) in &wowi_addons {
+                        let newer = stamps
+                            .iter()
+                            .any(|(id, stamp)| id == n && Some(stamp) != a.release_tag.as_ref());
+                        if newer {
+                            match wi.resolve(*n).await {
+                                Ok(r) => {
+                                    found.insert(a.id.clone(), r);
+                                }
+                                Err(e) => {
+                                    tracing::warn!(addon = %a.id, error = %e, "update check failed")
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!(error = %e, "WoWInterface update check failed"),
+            }
+        }
+
         tracing::info!(
             updates = found.len(),
             checked = addons.len(),
@@ -927,6 +1149,359 @@ impl Core {
         Ok(())
     }
 
+    // ---------- Lua errors ----------
+
+    /// Reads the game's log for this session's Lua errors.
+    pub fn lua_errors(&self) -> Result<ErrorReport> {
+        let game = self.require_game()?;
+        let views = self.list_installed()?;
+        let known: Vec<String> = views.iter().flat_map(|v| v.folders.clone()).collect();
+        let Some(log) = luaerrors::read(&game.root.join("Logs").join("General.log"), &known) else {
+            return Ok(ErrorReport::default());
+        };
+
+        let owner = |folder: &str| {
+            views
+                .iter()
+                .find(|v| v.folders.iter().any(|f| eq_ignore_case(f, folder)))
+        };
+        let mut addons: Vec<AddonErrors> = vec![];
+        let mut other: Vec<ErrorGroup> = vec![];
+        for e in log.errors {
+            let groups = match &e.folder {
+                Some(folder) => {
+                    let view = owner(folder);
+                    let key = view.map(|v| v.id.clone());
+                    let pos = addons.iter().position(|a| match (&a.id, &key) {
+                        (Some(a), Some(k)) => a == k,
+                        (None, None) => eq_ignore_case(&a.folder, folder),
+                        _ => false,
+                    });
+                    let i = match pos {
+                        Some(i) => i,
+                        None => {
+                            addons.push(AddonErrors {
+                                id: key,
+                                name: view
+                                    .map(|v| v.name.clone())
+                                    .unwrap_or_else(|| folder.clone()),
+                                folder: folder.clone(),
+                                source: view.and_then(|v| v.source),
+                                enabled: view.map(|v| v.enabled).unwrap_or(true),
+                                new_version: view.and_then(|v| v.new_version.clone()),
+                                project_url: view.and_then(|v| v.project_url.clone()),
+                                count: 0,
+                                groups: vec![],
+                            });
+                            addons.len() - 1
+                        }
+                    };
+                    addons[i].count += 1;
+                    &mut addons[i].groups
+                }
+                None => &mut other,
+            };
+            match groups.iter_mut().find(|g| g.message == e.message) {
+                Some(g) => {
+                    g.count += 1;
+                    g.last = e.time;
+                }
+                None => groups.push(ErrorGroup {
+                    message: e.message,
+                    count: 1,
+                    first: e.time.clone(),
+                    last: e.time,
+                    stack: e.stack,
+                    blame: e.blame,
+                }),
+            }
+        }
+        addons.sort_by(|a, b| b.count.cmp(&a.count).then(a.name.cmp(&b.name)));
+        let total = addons.iter().map(|a| a.count).sum();
+        let session = format!("{}|{total}", log.started.clone().unwrap_or_default());
+        let seen = self.settings().lua_errors_seen.as_deref() == Some(session.as_str());
+        Ok(ErrorReport {
+            session,
+            started: log.started,
+            seen,
+            total,
+            addons,
+            other,
+        })
+    }
+
+    pub fn dismiss_lua_errors(&self, session: &str) -> Result<()> {
+        self.update_settings(|s| s.lua_errors_seen = Some(session.to_string()))?;
+        Ok(())
+    }
+
+    // ---------- settings backups ----------
+
+    pub fn backups_dir(&self) -> PathBuf {
+        self.cache_dir
+            .parent()
+            .map(|p| p.join("backups"))
+            .unwrap_or_else(|| self.cache_dir.join("backups"))
+    }
+
+    pub fn list_backups(&self) -> Vec<Backup> {
+        backup::list(&self.backups_dir())
+    }
+
+    async fn make_backup(&self, game: &GameInfo, kind: backup::Kind) -> Result<Option<Backup>> {
+        let (game, dir) = (game.clone(), self.backups_dir());
+        tokio::task::spawn_blocking(move || backup::create(&game, &dir, kind))
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?
+    }
+
+    /// Before an update: back up `WTF` if it changed since the last backup. Runs inside
+    /// the install, which already does blocking file work under `op_lock`.
+    fn auto_backup(&self, game: &GameInfo) -> Result<()> {
+        if !self.settings().backup_before_update {
+            return Ok(());
+        }
+        let dir = self.backups_dir();
+        if !backup::needs_backup(game, &dir) {
+            return Ok(());
+        }
+        backup::create(game, &dir, backup::Kind::Auto)
+            .map(|_| ())
+            .map_err(|e| {
+                tracing::error!(error = %e, "settings backup before update failed");
+                Error::Other(format!(
+                    "Couldn't back up your addon settings, so the update was stopped: {e} \
+                     You can turn off backups before updates in Settings."
+                ))
+            })
+    }
+
+    pub async fn backup_now(&self) -> Result<Backup> {
+        let _guard = self.op_lock.lock().await;
+        let game = self.require_game()?;
+        self.make_backup(&game, backup::Kind::Manual)
+            .await?
+            .ok_or_else(|| {
+                Error::NotFound(
+                    "There are no addon settings to back up yet. Play the game once first.".into(),
+                )
+            })
+    }
+
+    /// Replaces `WTF` with a backup, after backing up the current folder.
+    pub async fn restore_backup(&self, name: &str) -> Result<()> {
+        let _guard = self.op_lock.lock().await;
+        let game = self.require_game()?;
+        if game::is_running(&game.root) {
+            return Err(Error::Other(
+                "Close WoW Forever first. The game saves its settings when it exits and would undo the restore.".into(),
+            ));
+        }
+        let archive = backup::path_of(&self.backups_dir(), name)?;
+        self.make_backup(&game, backup::Kind::Restore).await?;
+        tracing::info!(%name, "restoring settings backup");
+        tokio::task::spawn_blocking(move || backup::restore(&game, &archive))
+            .await
+            .map_err(|e| Error::Other(e.to_string()))?
+    }
+
+    pub fn delete_backup(&self, name: &str) -> Result<()> {
+        let p = backup::path_of(&self.backups_dir(), name)?;
+        fs::remove_file(&p).map_err(|e| Error::io("delete", &p, e))?;
+        tracing::info!(%name, "settings backup deleted");
+        Ok(())
+    }
+
+    // ---------- linking hand-installed addons ----------
+
+    /// Fingerprints folders Kobold doesn't manage (and zip imports) and asks CurseForge
+    /// which addon files they are. Exact matches become CurseForge addons, so they get
+    /// updates. Files on disk aren't touched.
+    pub async fn link_hand_installed(&self) -> Result<LinkOutcome> {
+        let mut out = LinkOutcome::default();
+        let Ok(key) = self.cf_key() else {
+            return Ok(out);
+        };
+        let game = self.require_game()?;
+        let manifest = self.manifest.lock().unwrap().clone();
+        let zip_folders: Vec<String> = manifest
+            .addons
+            .iter()
+            .filter(|a| a.source == Source::Zip)
+            .flat_map(|a| a.folders.clone())
+            .collect();
+        let candidates = {
+            let (g, zf, m) = (game.clone(), zip_folders.clone(), manifest.clone());
+            tokio::task::spawn_blocking(move || link_candidates(&g, &m, &zf))
+                .await
+                .map_err(|e| Error::Other(e.to_string()))?
+        };
+        if candidates.is_empty() {
+            return Ok(out);
+        }
+        let cf = self.cf(&key);
+        let fps: Vec<u32> = candidates.iter().map(|c| c.fingerprint).collect();
+        let matches = cf.match_fingerprints(&fps).await?;
+        tracing::info!(
+            folders = candidates.len(),
+            matches = matches.len(),
+            "checked hand-installed folders with CurseForge"
+        );
+
+        // Keep matches whose every folder is here, unchanged, and in one state.
+        let mut picked = vec![];
+        for m in matches {
+            if m.modules.is_empty() || manifest.get(&format!("cf:{}", m.mod_id)).is_some() {
+                continue;
+            }
+            let local: Vec<&Candidate> = m
+                .modules
+                .iter()
+                .filter_map(|md| {
+                    candidates.iter().find(|c| {
+                        eq_ignore_case(&c.folder, &md.name)
+                            && u64::from(c.fingerprint) == md.fingerprint
+                    })
+                })
+                .collect();
+            if local.len() != m.modules.len() || local.iter().any(|c| c.enabled != local[0].enabled)
+            {
+                continue;
+            }
+            // A zip import is replaced only if all of its folders are in this file.
+            let replaces: Vec<String> = manifest
+                .addons
+                .iter()
+                .filter(|a| a.source == Source::Zip)
+                .filter(|a| {
+                    a.folders
+                        .iter()
+                        .any(|f| local.iter().any(|c| eq_ignore_case(&c.folder, f)))
+                })
+                .map(|a| {
+                    let all_in = a
+                        .folders
+                        .iter()
+                        .all(|f| local.iter().any(|c| eq_ignore_case(&c.folder, f)));
+                    if all_in {
+                        Ok(a.id.clone())
+                    } else {
+                        Err(())
+                    }
+                })
+                .collect::<std::result::Result<_, _>>()
+                .unwrap_or_else(|_| vec!["!".into()]);
+            if replaces.iter().any(|r| r == "!") {
+                continue;
+            }
+            let folders: Vec<String> = local.iter().map(|c| c.folder.clone()).collect();
+            let enabled = local[0].enabled;
+            picked.push((m, folders, enabled, replaces));
+        }
+        if picked.is_empty() {
+            return Ok(out);
+        }
+
+        let mod_ids: Vec<u64> = picked.iter().map(|p| p.0.mod_id).collect();
+        let forever = cf.forever_type_id().await?;
+        let mods = cf.mods(&mod_ids).await?;
+        let mut req_ids: Vec<u64> = picked.iter().flat_map(|p| p.0.requires.clone()).collect();
+        req_ids.sort_unstable();
+        req_ids.dedup();
+        let named = cf.named(&req_ids).await?;
+
+        let _guard = self.op_lock.lock().await;
+        let mut m = self.manifest.lock().unwrap();
+        let before = m.clone();
+        for (file, folders, enabled, replaces) in picked {
+            let Some(info) = mods.iter().find(|x| x.id == file.mod_id) else {
+                continue;
+            };
+            // Re-check under the lock; something may have been installed meanwhile.
+            if folders
+                .iter()
+                .any(|f| m.owners_of(f, "").iter().any(|o| !replaces.contains(&o.id)))
+            {
+                continue;
+            }
+            for id in &replaces {
+                m.remove(id);
+            }
+            let remote = curseforge::to_remote(info, forever);
+            let requires = file
+                .requires
+                .iter()
+                .filter_map(|id| named.iter().find(|r| r.id == format!("cf:{id}")).cloned())
+                .collect();
+            m.upsert(InstalledAddon {
+                id: remote.id.clone(),
+                name: remote.name.clone(),
+                author: remote.author.clone(),
+                summary: remote.summary.clone(),
+                source: Source::CurseForge,
+                version: curseforge::clean_display_name(&file.display_name, &remote.name),
+                file_id: Some(file.file_id),
+                release_tag: None,
+                project_url: Some(remote.project_url.clone()),
+                icon_url: remote.icon_url.clone(),
+                folders,
+                installed_at: 0,
+                updated_at: 0,
+                enabled,
+                pinned: false,
+                archive_sha256: None,
+                requires: Some(requires),
+            });
+            tracing::info!(addon = %remote.id, name = %remote.name, file = file.file_id, "linked hand-installed addon to CurseForge");
+            out.linked.push(remote.name);
+        }
+        if out.linked.is_empty() {
+            return Ok(out);
+        }
+        if let Err(e) = self.store.save(&m) {
+            *m = before;
+            return Err(e);
+        }
+        Ok(out)
+    }
+
+    // ---------- addon list ----------
+
+    /// Writes every installed addon to `path`. Returns how many were written.
+    pub fn export_addon_list(&self, path: &Path) -> Result<usize> {
+        let views = self.list_installed()?;
+        let entries: Vec<addonlist::Entry> = views
+            .into_iter()
+            .map(|v| addonlist::Entry {
+                id: v.id,
+                name: v.name,
+                source: v.source,
+                version: v.version,
+                project_url: v.project_url,
+                pinned: v.pinned,
+                enabled: v.enabled,
+            })
+            .collect();
+        let n = entries.len();
+        let version = self.game().and_then(|g| g.version);
+        addonlist::save(path, &addonlist::new_list(entries, version))?;
+        tracing::info!(?path, count = n, "addon list exported");
+        Ok(n)
+    }
+
+    /// Reads a saved list and sorts it into what can be installed, what's already
+    /// here, and what has to be installed by hand.
+    pub fn preview_addon_list(&self, path: &Path) -> Result<ImportPreview> {
+        let list = addonlist::load(path)?;
+        let views = self.list_installed()?;
+        Ok(addonlist::preview(list, |e| {
+            views.iter().any(|v| {
+                v.id.eq_ignore_ascii_case(&e.id)
+                    || (!e.installable() && eq_ignore_case(&v.name, &e.name))
+            })
+        }))
+    }
+
     // ---------- diagnostics ----------
 
     /// Zips logs, the manifest and settings into `dest_dir`, with the Windows user
@@ -1015,6 +1590,39 @@ fn missing_requirements(game: &GameInfo, m: &Manifest, a: &InstalledAddon) -> Ve
         .into_iter()
         .filter(|r| !requirement_present(game, m, r))
         .collect()
+}
+
+struct Candidate {
+    folder: String,
+    enabled: bool,
+    fingerprint: u32,
+}
+
+/// Addon folders Kobold could link: not managed, or from a zip import.
+fn link_candidates(game: &GameInfo, m: &Manifest, zip_folders: &[String]) -> Vec<Candidate> {
+    let mut out = vec![];
+    for (dir, enabled) in [
+        (game.addons_dir.clone(), true),
+        (game.disabled_dir(), false),
+    ] {
+        let Ok(rd) = fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            let is_dir = e.file_type().map(|t| t.is_dir()).unwrap_or(false);
+            let managed = m.owns(&name) && !zip_folders.iter().any(|z| eq_ignore_case(z, &name));
+            if !is_dir || name.starts_with('.') || name.starts_with("Blizzard_") || managed {
+                continue;
+            }
+            if let Some(fp) = fingerprint::folder_fingerprint(&e.path()) {
+                out.push(Candidate {
+                    folder: name,
+                    enabled,
+                    fingerprint: fp,
+                });
+            }
+        }
+    }
+    out
 }
 
 /// Removes a staging folder when dropped, whatever happened.

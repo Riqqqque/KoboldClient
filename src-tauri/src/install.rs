@@ -38,7 +38,7 @@ pub fn stage(archive: &Path, staging_root: &Path) -> Result<(PathBuf, Vec<Staged
     }
 }
 
-fn extract(archive: &Path, out: &Path) -> Result<()> {
+pub(crate) fn extract(archive: &Path, out: &Path) -> Result<()> {
     let file = fs::File::open(archive).map_err(|e| Error::io("open", archive, e))?;
     let mut zip = zip::ZipArchive::new(io::BufReader::new(file))?;
     if zip.len() > MAX_ENTRIES {

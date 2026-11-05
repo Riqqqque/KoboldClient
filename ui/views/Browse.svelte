@@ -2,11 +2,44 @@
   import { open } from "@tauri-apps/plugin-dialog";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, asError, type RemoteAddon } from "../lib/api";
-  import { app, fail, formatCount, installAddon, refreshInstalled, timeAgo, toast } from "../lib/store.svelte";
+  import { app, fail, formatCount, installAddon, refreshInstalled, refreshState, SOURCE_LABEL, timeAgo, toast } from "../lib/store.svelte";
   import AddonIcon from "../components/AddonIcon.svelte";
   import CurseForgeSetup from "../components/CurseForgeSetup.svelte";
   import Icon from "../components/Icon.svelte";
   import Modal from "../components/Modal.svelte";
+  import SecretField from "../components/SecretField.svelte";
+
+  type Src = "curseforge" | "wago" | "wowinterface";
+  const SOURCES: { id: Src; label: string }[] = [
+    { id: "curseforge", label: "CurseForge" },
+    { id: "wago", label: "Wago" },
+    { id: "wowinterface", label: "WoWInterface" },
+  ];
+  const stored = (() => {
+    try {
+      return localStorage.getItem("kobold-browse-source");
+    } catch {
+      return null;
+    }
+  })();
+  let source = $state<Src>(SOURCES.some((s) => s.id === stored) ? (stored as Src) : "curseforge");
+  $effect(() => {
+    try {
+      localStorage.setItem("kobold-browse-source", source);
+    } catch {
+      /* not important */
+    }
+  });
+  const SUB: Record<Src, string> = {
+    curseforge: "Only addons with a Forever build are shown",
+    wago: "Only addons with a Forever release are shown",
+    wowinterface: "WoWInterface doesn't list Forever support, so Kobold checks each addon after installing",
+  };
+  const PLACEHOLDER: Record<Src, string> = {
+    curseforge: "Search CurseForge addons",
+    wago: "Search Wago addons, or paste a Wago link",
+    wowinterface: "Search WoWInterface by name, or paste a WoWInterface link",
+  };
 
   type Sort = "popular" | "downloads" | "updated";
   let query = $state("");
@@ -19,7 +52,9 @@
   let importing = $state(false);
   let searchSeq = 0;
 
-  const hasKey = $derived(app.state?.has_cf_key ?? false);
+  const hasKey = $derived(
+    source === "curseforge" ? (app.state?.has_cf_key ?? false) : source === "wago" ? (app.state?.has_wago_key ?? false) : true,
+  );
   const installedIds = $derived(new Map(app.installed.map((a) => [a.id, a])));
 
   async function runSearch() {
@@ -28,7 +63,7 @@
     loading = true;
     error = null;
     try {
-      const r = await api.search("curseforge", query, sort);
+      const r = await api.search(source, query, sort);
       if (seq === searchSeq) results = r;
     } catch (e) {
       if (seq === searchSeq) {
@@ -46,6 +81,7 @@
     void query;
     void sort;
     void hasKey;
+    void source;
     const t = setTimeout(runSearch, query ? 350 : 0);
     return () => clearTimeout(t);
   });
@@ -82,30 +118,62 @@
   <div class="head">
     <div>
       <h2>Browse</h2>
-      <div class="sub">Only addons with a Forever build are shown</div>
+      <div class="sub">{SUB[source]}</div>
     </div>
     <div class="sp"></div>
     <button class="btn" onclick={() => (addUrlOpen = true)}><Icon name="link" size={15} stroke={2} /> Add from GitHub</button>
     <button class="btn" disabled={importing} onclick={importZip}><Icon name="upload" size={15} stroke={2} /> {importing ? "Importing…" : "Import .zip"}</button>
   </div>
 
-  {#if !hasKey}
+  <div class="tabs" role="tablist">
+    {#each SOURCES as s}
+      <button role="tab" aria-selected={source === s.id} class:on={source === s.id} onclick={() => { source = s.id; results = []; error = null; }}>{s.label}</button>
+    {/each}
+  </div>
+
+  {#if !hasKey && source === "curseforge"}
     <div class="setup">
       <h3>Connect CurseForge to browse addons</h3>
       <CurseForgeSetup />
-      <p class="alt">You can still add addons from GitHub or import a .zip without a key.</p>
+      <p class="alt">You can still use WoWInterface, add addons from GitHub or import a .zip without a key.</p>
+    </div>
+  {:else if !hasKey && source === "wago"}
+    <div class="setup">
+      <h3>Add a Wago API key to browse Wago</h3>
+      <SecretField
+        connected={false}
+        connectedText=""
+        placeholder="Paste your Wago API key"
+        save={async (k) => {
+          try {
+            await api.saveWagoKey(k);
+            await refreshState();
+            toast("Wago connected");
+          } catch (e) {
+            fail(e, "save Wago key");
+            throw e;
+          }
+        }}
+        remove={async () => {}}
+      >
+        Wago's API needs a personal key, which Wago gives to its subscribers. Kobold checks the key with Wago before saving it.
+        <button class="link" onclick={() => openUrl("https://addons.wago.io/patreon")}>Get a key from Wago <Icon name="external" size={11} /></button>
+      </SecretField>
+      <p class="alt">Without a key you can still use CurseForge and WoWInterface.</p>
     </div>
   {:else}
     <label class="bigsearch">
       <Icon name="search" size={18} stroke={2} />
-      <input placeholder="Search CurseForge addons" bind:value={query} />
+      <input placeholder={PLACEHOLDER[source]} bind:value={query} />
       {#if loading}<Icon name="spinner" size={16} stroke={2} class="spin" />{/if}
     </label>
-    <div class="chips">
-      {#each [["popular", "Popular"], ["downloads", "Most downloaded"], ["updated", "Recently updated"]] as [s, label]}
-        <button class="chip" class:on={sort === s} onclick={() => (sort = s as Sort)}>{label}</button>
-      {/each}
-    </div>
+    {#if source === "curseforge"}
+      <div class="chips">
+        {#each [["popular", "Popular"], ["downloads", "Most downloaded"], ["updated", "Recently updated"]] as [s, label]}
+          <button class="chip" class:on={sort === s} onclick={() => (sort = s as Sort)}>{label}</button>
+        {/each}
+      </div>
+    {/if}
     <div class="grid">
       {#if error}
         <div class="empty wide">
@@ -114,7 +182,7 @@
           <div style="margin-top:14px"><button class="btn" onclick={runSearch}>Try again</button></div>
         </div>
       {:else if !loading && results.length === 0}
-        <div class="empty wide">No Forever addons match “{query}”.</div>
+        <div class="empty wide">{source === "wowinterface" ? `No WoWInterface addons match “${query}”.` : `No Forever addons match “${query}”.`}</div>
       {/if}
       {#each results as r (r.id)}
         {@const inst = installedIds.get(r.id)}
@@ -126,7 +194,7 @@
             <div class="by">{r.author}</div>
             <p>{r.summary}</p>
             <div class="meta">
-              <span>↓ {formatCount(r.downloads)}</span>
+              {#if r.downloads}<span>↓ {formatCount(r.downloads)}</span>{/if}
               {#if r.updated}<span>Updated {timeAgo(r.updated)}</span>{/if}
             </div>
           </div>
@@ -145,7 +213,7 @@
             {:else}
               <button class="btn sm primary" onclick={() => installAddon(r.id, r.name)}>Install</button>
             {/if}
-            <button class="page" title="Open on CurseForge" onclick={() => openUrl(r.project_url)}><Icon name="external" size={13} /></button>
+            <button class="page" title="Open on {SOURCE_LABEL[r.source]}" onclick={() => openUrl(r.project_url)}><Icon name="external" size={13} /></button>
           </div>
         </div>
       {/each}
@@ -198,4 +266,11 @@
   .setup { margin: 4px 22px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); max-width: 680px; }
   .setup h3 { margin: 0; padding: 16px 16px 0; font-family: var(--display); font-size: 16px; font-weight: 600; }
   .alt { margin: 0; padding: 12px 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12.5px; }
+  .tabs { display: flex; gap: 2px; margin: 0 22px 12px; border-bottom: 1px solid var(--border); }
+  .tabs button {
+    background: none; border: 0; border-bottom: 2px solid transparent; padding: 7px 12px 8px; margin-bottom: -1px;
+    color: var(--muted); font-size: 13px; font-weight: 500;
+  }
+  .tabs button:hover { color: var(--text); }
+  .tabs button.on { color: var(--text); border-bottom-color: var(--accent); }
 </style>

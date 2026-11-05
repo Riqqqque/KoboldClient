@@ -15,12 +15,18 @@ use crate::error::{Error, Result};
 pub const MAX_DOWNLOAD: u64 = 512 * 1024 * 1024;
 
 /// Hosts Kobold will talk to. Anything else, including redirects, is refused.
-const ALLOWED_HOSTS: [&str; 4] = [
+const ALLOWED_HOSTS: [&str; 8] = [
     "api.curseforge.com",
     "api.github.com",
     "github.com",
     "codeload.github.com",
+    "addons.wago.io",
+    "cdn.wago.io",
+    "api.mmoui.com",
+    "cdn.wowinterface.com",
 ];
+/// The only host a download is ever sent a key to (Wago wants it on the download link).
+pub const WAGO_DOWNLOAD_HOST: &str = "addons.wago.io";
 const ALLOWED_SUFFIXES: [&str; 2] = [".forgecdn.net", ".githubusercontent.com"];
 
 pub fn is_trusted(url: &Url) -> bool {
@@ -76,7 +82,7 @@ pub async fn check(resp: reqwest::Response) -> Result<reqwest::Response> {
             Error::Http("The server is rate limiting requests. Try again in a few minutes.".into())
         }
         403 if url.host_str() == Some("api.github.com") => {
-            Error::Http("GitHub's hourly request limit was reached. Try again later.".into())
+            Error::Http("GitHub's hourly request limit was reached. Try again later, or add a GitHub token in Settings to raise the limit.".into())
         }
         s if s >= 500 => Error::Http(format!(
             "{} is having trouble right now ({status}).",
@@ -115,6 +121,7 @@ pub async fn download(
     url: &str,
     dest: &Path,
     expected: &Expected,
+    bearer: Option<&str>,
     mut progress: impl FnMut(u64, Option<u64>),
 ) -> Result<Downloaded> {
     let parsed = Url::parse(url).map_err(|_| Error::UntrustedUrl(url.to_string()))?;
@@ -124,7 +131,7 @@ pub async fn download(
     let mut attempt = 0;
     loop {
         attempt += 1;
-        match download_once(http, url, dest, expected, &mut progress).await {
+        match download_once(http, url, dest, expected, bearer, &mut progress).await {
             Ok(d) => return Ok(d),
             Err(e) if attempt < 3 && retryable(&e) => {
                 tracing::warn!(attempt, error = %e, "download failed, retrying");
@@ -143,9 +150,22 @@ async fn download_once(
     url: &str,
     dest: &Path,
     expected: &Expected,
+    bearer: Option<&str>,
     progress: &mut impl FnMut(u64, Option<u64>),
 ) -> Result<Downloaded> {
-    let resp = check(http.get(url).send().await?).await?;
+    let mut req = http.get(url);
+    if let Some(token) = bearer {
+        // Redirects to another host drop this header (reqwest strips it).
+        if Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_string))
+            .as_deref()
+            == Some(WAGO_DOWNLOAD_HOST)
+        {
+            req = req.bearer_auth(token);
+        }
+    }
+    let resp = check(req.send().await?).await?;
     if !is_trusted(resp.url()) {
         return Err(Error::UntrustedUrl(resp.url().to_string()));
     }
@@ -222,5 +242,10 @@ mod tests {
         assert!(!ok("http://edge.forgecdn.net/a.zip"));
         assert!(!ok("https://forgecdn.net.evil.com/a.zip"));
         assert!(!ok("https://example.com/a.zip"));
+        assert!(ok(
+            "https://cdn.wowinterface.com/downloads/getfile.php?id=1"
+        ));
+        assert!(ok("https://cdn.wago.io/public/addons/x.zip"));
+        assert!(!ok("https://wago.io.evil.com/x.zip"));
     }
 }

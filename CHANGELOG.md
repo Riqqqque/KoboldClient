@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- **See which addon is causing Lua errors.** Kobold reads the game's error log and groups errors by addon, including errors in the game's own UI that an addon set off ("tainted by"). The Installed list flags those addons; the errors window can update or disable them and copy the errors for a bug report.
+- **Addon settings backups.** The `WTF` folder is backed up before addons update, whenever it changed since the last backup. **Settings → Addon settings backups** lists them, makes one on demand, and restores any of them. A restore backs up the current folder first and refuses to run while the game is open.
+- **Update before Play.** Play installs pending addon updates first. Turn it off in Settings; it never waits more than 20 seconds for the update check.
+- **Hand-installed addons are recognized.** Folders you copied in yourself (and zip imports) are fingerprinted and looked up on CurseForge. Exact matches become normal CurseForge addons that get updates.
+- **Save and load your addon list.** Save every installed addon to a file, then install the same set on another PC. Addons installed by hand are listed with a link so you can fetch them yourself.
+- **Wago.** Search and install Forever releases from Wago Addons with your Wago API key.
+- **WoWInterface.** Search WoWInterface or paste an addon link. Downloads are checked against WoWInterface's MD5; addons that turn out not to be built for Forever are flagged.
+- **GitHub token.** An optional token raises GitHub's limit from 60 to 5,000 requests an hour.
+
 ## 0.1.2
 
 - **Required addons are installed too.** When a CurseForge addon lists another addon as required, Kobold installs that one first. Questie 12.6, for example, needs QuestieDB and QuestieTrace and showed `LibQuestieDB` Lua errors without them.
