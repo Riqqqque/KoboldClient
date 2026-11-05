@@ -97,13 +97,21 @@ async fn import_toggle_remove_undo() {
     assert!(!addons.join("Bagnon").exists());
     assert!(f.core.list_installed().unwrap().is_empty());
 
-    // Undo restores both the folders and the manifest entry.
-    f.core.undo_remove(&removed.token).await.unwrap();
-    assert!(addons.join("Bagnon/Bagnon.lua").exists());
-    assert_eq!(f.core.list_installed().unwrap().len(), 1);
-
-    // Clean up the restored copy from the real Recycle Bin path again.
-    f.core.remove(&v.id, false).await.unwrap();
+    // Undo restores both the folders and the manifest entry. Some machines (CI
+    // runners, drives with the Recycle Bin turned off) delete permanently; then undo
+    // must say so and leave the list alone rather than point at missing folders.
+    match f.core.undo_remove(&removed.token).await {
+        Ok(()) => {
+            assert!(addons.join("Bagnon/Bagnon.lua").exists());
+            assert_eq!(f.core.list_installed().unwrap().len(), 1);
+            f.core.remove(&v.id, false).await.unwrap();
+        }
+        Err(e) => {
+            assert_eq!(e.code(), "not_found", "unexpected undo error: {e}");
+            assert!(f.core.list_installed().unwrap().is_empty());
+            eprintln!("no usable Recycle Bin here; checked the fallback instead");
+        }
+    }
 }
 
 #[tokio::test]

@@ -702,7 +702,15 @@ impl Core {
             tokio::task::spawn_blocking(move || remove::restore_from_recycle_bin(&paths))
                 .await
                 .map_err(|e| Error::Other(e.to_string()))??;
-        tracing::info!(restored, "undo delete");
+        tracing::info!(restored, wanted = entry.paths.len(), "undo delete");
+        if restored == 0 && !entry.paths.is_empty() {
+            // Nothing came back (Recycle Bin emptied, disabled, or the drive has none).
+            // Don't re-add the addon, or the list would point at folders that don't exist.
+            return Err(Error::NotFound(
+                "The removed folders aren't in the Recycle Bin anymore, so they can't be restored."
+                    .into(),
+            ));
+        }
         if let Some(a) = entry.addon {
             let mut m = self.manifest.lock().unwrap();
             m.upsert(a);
