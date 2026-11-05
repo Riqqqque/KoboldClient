@@ -1,6 +1,6 @@
 [package]
 name = "kobold-client"
-version = "0.1.0"
+version = "0.1.1"
 description = "A small, fast addon manager for World of Warcraft: Forever"
 authors = ["Rique"]
 license = "MIT"
