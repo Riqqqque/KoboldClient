@@ -1,0 +1,138 @@
+<script lang="ts">
+  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { onMount } from "svelte";
+  import { api } from "./lib/api";
+  import { app, applyTheme, checkUpdates, fail, refreshInstalled, refreshState, startListening, updateAll, type View } from "./lib/store.svelte";
+  import { checkAppUpdate, installAppUpdate } from "./lib/updater";
+  import Icon from "./components/Icon.svelte";
+  import TitleBar from "./components/TitleBar.svelte";
+  import Toasts from "./components/Toasts.svelte";
+  import Browse from "./views/Browse.svelte";
+  import Installed from "./views/Installed.svelte";
+  import Settings from "./views/Settings.svelte";
+  import Welcome from "./views/Welcome.svelte";
+
+  let ready = $state(false);
+  const game = $derived(app.state?.game ?? null);
+  const updateCount = $derived(app.installed.filter((a) => a.new_version && !a.pinned).length);
+
+  async function afterGameReady() {
+    await refreshState();
+    await refreshInstalled();
+    const s = app.state!.settings;
+    if (s.check_updates_on_launch || s.auto_update_addons) {
+      await checkUpdates(true);
+      if (s.auto_update_addons) await updateAll();
+    }
+  }
+
+  onMount(() => {
+    let timer: ReturnType<typeof setInterval> | undefined;
+    (async () => {
+      try {
+        await startListening();
+        await refreshState();
+        applyTheme(app.state!.settings.theme);
+      } catch (e) {
+        fail(e, "startup");
+      }
+      ready = true;
+      await getCurrentWindow().show();
+      if (app.state?.game) await afterGameReady();
+      if (app.state?.settings.check_updates_on_launch) checkAppUpdate(true);
+      // Keep the "game is running" state fresh without hammering anything.
+      timer = setInterval(() => refreshState().catch(() => {}), 15000);
+    })();
+    return () => clearInterval(timer);
+  });
+
+  const NAV: { id: View; label: string; icon: string }[] = [
+    { id: "installed", label: "Installed", icon: "box" },
+    { id: "browse", label: "Browse", icon: "search" },
+    { id: "settings", label: "Settings", icon: "sliders" },
+  ];
+
+  function onkey(e: KeyboardEvent) {
+    if (e.ctrlKey && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      app.view = "browse";
+      setTimeout(() => document.querySelector<HTMLInputElement>(".bigsearch input")?.focus(), 30);
+    }
+  }
+</script>
+
+<svelte:window onkeydown={onkey} oncontextmenu={(e) => import.meta.env.PROD && e.preventDefault()} />
+
+<div class="win">
+  <TitleBar />
+  {#if !ready}
+    <div class="body"></div>
+  {:else if !game}
+    <Welcome ondone={afterGameReady} />
+  {:else}
+    <div class="body">
+      <aside class="side">
+        <nav class="nav">
+          {#each NAV as n}
+            <button class:on={app.view === n.id} onclick={() => (app.view = n.id)}>
+              <Icon name={n.icon} size={17} />
+              {n.label}
+              {#if n.id === "installed" && updateCount}<span class="count">{updateCount}</span>{/if}
+            </button>
+          {/each}
+        </nav>
+        <div class="grow"></div>
+        {#if app.appUpdate}
+          <button class="appupd" onclick={installAppUpdate}>
+            <b>Kobold Client {app.appUpdate.version}</b>
+            <span>Ready to install. Click to update and restart.</span>
+          </button>
+        {/if}
+        <div class="game" title={game.root}>
+          <div class="t"><span class="dot" class:idle={!game.running}></span>WoW Forever</div>
+          <div class="s">
+            {game.version ? game.version.split(".").slice(0, 3).join(".") : "Unknown version"} · {game.running ? "Running" : "Not running"}<br />
+            {app.installed.length} addon{app.installed.length === 1 ? "" : "s"}
+          </div>
+          <div class="path">{game.root}</div>
+        </div>
+      </aside>
+      <main class="main">
+        {#if app.view === "installed"}
+          <Installed />
+        {:else if app.view === "browse"}
+          <Browse />
+        {:else}
+          <Settings />
+        {/if}
+      </main>
+    </div>
+  {/if}
+  <Toasts />
+</div>
+
+<style>
+  .win { height: 100%; display: flex; flex-direction: column; border: 1px solid var(--border); }
+  .body { flex: 1; display: flex; min-height: 0; }
+  .side { width: 208px; flex: none; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 12px 10px; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 7px; border: 0; background: none; color: var(--muted); font-size: 13.5px; text-align: left; }
+  .nav button:hover { background: var(--hover); color: var(--text); }
+  .nav button.on { background: var(--accent-soft); color: var(--text); }
+  .nav button.on :global(svg) { color: var(--accent); }
+  .count { margin-left: auto; font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .grow { flex: 1; }
+  .appupd {
+    text-align: left; border: 1px solid var(--accent); background: var(--accent-soft); border-radius: 9px; padding: 10px 11px;
+    margin-bottom: 8px; display: flex; flex-direction: column; gap: 3px;
+  }
+  .appupd b { font-size: 12.5px; }
+  .appupd span { font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+  .game { border: 1px solid var(--border); border-radius: 9px; padding: 10px 11px; background: var(--raised); font-size: 12px; }
+  .t { display: flex; align-items: center; gap: 7px; font-weight: 600; font-size: 12.5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .dot.idle { background: var(--faint); box-shadow: none; }
+  .s { color: var(--muted); margin-top: 4px; line-height: 1.45; }
+  .path { font-family: var(--mono); font-size: 10.5px; color: var(--faint); margin-top: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; position: relative; }
+</style>

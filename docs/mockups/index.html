@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kobold Client — Mock-ups</title>
+<style>
+  /* ---------- Themes ---------- */
+  :root, [data-theme="ember"] {
+    --bg:#14100d; --panel:#1b1612; --raised:#241d17; --hover:#2b231b; --border:#33291f;
+    --text:#f1e7da; --muted:#a08f7c; --faint:#6e604f;
+    --accent:#eba340; --accent-2:#f6c46a; --accent-ink:#1c1206; --accent-soft:rgba(235,163,64,.13);
+    --ok:#86c37f; --warn:#e5b94f; --danger:#e36a5c; --danger-soft:rgba(227,106,92,.12);
+    --shadow:0 30px 80px rgba(0,0,0,.55); --radius:10px;
+    --font:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif; --display:var(--font);
+    --stage:radial-gradient(1200px 600px at 50% -10%, #2a1d10 0%, #0c0907 60%);
+  }
+  [data-theme="deepstone"] {
+    --bg:#0e1115; --panel:#13171c; --raised:#1a1f26; --hover:#20262e; --border:#262d36;
+    --text:#e6ebf1; --muted:#8693a4; --faint:#5a6677;
+    --accent:#6ea8ff; --accent-2:#9cc4ff; --accent-ink:#06101f; --accent-soft:rgba(110,168,255,.12);
+    --ok:#5fcf9b; --warn:#e2bd5a; --danger:#ef6b6b; --danger-soft:rgba(239,107,107,.12);
+    --shadow:0 30px 80px rgba(0,0,0,.6); --radius:8px;
+    --stage:radial-gradient(1200px 600px at 50% -10%, #17253a 0%, #07090c 60%);
+  }
+  [data-theme="parchment"] {
+    --bg:#f3ede2; --panel:#faf6ef; --raised:#ffffff; --hover:#f1e9dc; --border:#e2d6c3;
+    --text:#2a2118; --muted:#7a6a57; --faint:#a99883;
+    --accent:#b4552b; --accent-2:#cf7046; --accent-ink:#fff8f2; --accent-soft:rgba(180,85,43,.10);
+    --ok:#4f8a4a; --warn:#b98618; --danger:#c0442f; --danger-soft:rgba(192,68,47,.09);
+    --shadow:0 30px 70px rgba(80,55,25,.22); --radius:10px;
+    --display:"Georgia","Cambria",serif;
+    --stage:radial-gradient(1200px 600px at 50% -10%, #fff7ea 0%, #ddd0bc 70%);
+  }
+  [data-theme="fel"] {
+    --bg:#0c0f0b; --panel:#11150f; --raised:#171d14; --hover:#1d2519; --border:#232c1e;
+    --text:#e4ecdc; --muted:#8c9a80; --faint:#5c6852;
+    --accent:#93d651; --accent-2:#b7ea80; --accent-ink:#0b1404; --accent-soft:rgba(147,214,81,.12);
+    --ok:#93d651; --warn:#e0c35a; --danger:#e8705f; --danger-soft:rgba(232,112,95,.12);
+    --shadow:0 30px 80px rgba(0,0,0,.6); --radius:6px;
+    --stage:radial-gradient(1200px 600px at 50% -10%, #17260f 0%, #050704 60%);
+  }
+
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { font-family:var(--font); background:var(--stage); color:var(--text); transition:background .3s; min-height:100vh; }
+  button { font:inherit; color:inherit; cursor:pointer; }
+  svg { flex:none; }
+
+  /* ---------- Demo chrome (not part of the app) ---------- */
+  .demo { max-width:1100px; margin:0 auto; padding:28px 24px 8px; }
+  .demo h1 { font-family:var(--display); font-weight:600; font-size:22px; margin:0 0 4px; letter-spacing:-.01em; }
+  .demo p { margin:0; color:var(--muted); font-size:13.5px; }
+  .themes { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:16px; }
+  .theme-btn { text-align:left; padding:12px 14px; border-radius:10px; border:1px solid var(--border); background:var(--panel); transition:.15s; }
+  .theme-btn:hover { border-color:var(--faint); }
+  .theme-btn.on { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  .theme-btn b { display:flex; align-items:center; gap:8px; font-size:14px; }
+  .theme-btn > span { display:block; color:var(--muted); font-size:12px; margin-top:4px; line-height:1.4; }
+  .theme-btn .sw { display:inline-flex; gap:3px; }
+  .sw i { width:10px; height:10px; border-radius:3px; display:block; }
+  .scenes { display:flex; gap:6px; margin-top:14px; flex-wrap:wrap; }
+  .scene { padding:6px 12px; border-radius:999px; border:1px solid var(--border); background:transparent; font-size:12.5px; color:var(--muted); }
+  .scene:hover { color:var(--text); }
+  .scene.on { background:var(--accent-soft); color:var(--accent); border-color:transparent; }
+
+  /* ---------- App window ---------- */
+  .stage { display:flex; justify-content:center; padding:18px 24px 40px; }
+  .win { width:1040px; height:660px; background:var(--bg); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); display:flex; flex-direction:column; overflow:hidden; position:relative; }
+  .titlebar { height:38px; display:flex; align-items:center; padding-left:14px; border-bottom:1px solid var(--border); background:var(--panel); user-select:none; }
+  .titlebar .brand { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; letter-spacing:.01em; }
+  .titlebar .spacer { flex:1; }
+  .wc { width:46px; height:38px; display:grid; place-items:center; background:none; border:0; color:var(--muted); }
+  .wc:hover { background:var(--hover); color:var(--text); }
+  .wc.x:hover { background:#c42b1c; color:#fff; }
+  .body { flex:1; display:flex; min-height:0; }
+
+  /* Sidebar */
+  .side { width:208px; background:var(--panel); border-right:1px solid var(--border); display:flex; flex-direction:column; padding:12px 10px; }
+  .nav { display:flex; flex-direction:column; gap:2px; }
+  .nav button { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:7px; border:0; background:none; color:var(--muted); font-size:13.5px; text-align:left; }
+  .nav button:hover { background:var(--hover); color:var(--text); }
+  .nav button.on { background:var(--accent-soft); color:var(--text); }
+  .nav button.on svg { color:var(--accent); }
+  .nav .count { margin-left:auto; font-size:11px; padding:1px 7px; border-radius:999px; background:var(--raised); color:var(--muted); }
+  .nav .count.hot { background:var(--accent); color:var(--accent-ink); font-weight:600; }
+  .side .grow { flex:1; }
+  .game { border:1px solid var(--border); border-radius:9px; padding:10px 11px; background:var(--raised); font-size:12px; }
+  .game .t { display:flex; align-items:center; gap:7px; font-weight:600; font-size:12.5px; }
+  .dot { width:7px; height:7px; border-radius:50%; background:var(--ok); box-shadow:0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .game .s { color:var(--muted); margin-top:4px; line-height:1.45; }
+  .game .path { font-family:ui-monospace,Consolas,monospace; font-size:10.5px; color:var(--faint); margin-top:6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* Main */
+  .main { flex:1; display:flex; flex-direction:column; min-width:0; position:relative; }
+  .view { display:none; flex:1; flex-direction:column; min-height:0; }
+  .view.on { display:flex; }
+  .head { padding:18px 22px 12px; display:flex; align-items:flex-end; gap:12px; }
+  .head h2 { font-family:var(--display); margin:0; font-size:20px; font-weight:600; letter-spacing:-.01em; }
+  .head .sub { color:var(--muted); font-size:12.5px; margin-top:3px; }
+  .head .sp { flex:1; }
+  .btn { display:inline-flex; align-items:center; gap:7px; height:32px; padding:0 13px; border-radius:7px; border:1px solid var(--border); background:var(--raised); font-size:13px; font-weight:500; white-space:nowrap; }
+  .btn:hover { background:var(--hover); }
+  .btn.primary { background:var(--accent); border-color:transparent; color:var(--accent-ink); font-weight:600; }
+  .btn.primary:hover { background:var(--accent-2); }
+  .btn.danger { background:var(--danger); border-color:transparent; color:#fff; }
+  .btn.ghost { background:none; border-color:transparent; color:var(--muted); }
+  .btn.ghost:hover { color:var(--text); background:var(--hover); }
+  .btn.sm { height:28px; padding:0 10px; font-size:12.5px; }
+  .search { display:flex; align-items:center; gap:8px; height:32px; padding:0 10px; border:1px solid var(--border); border-radius:7px; background:var(--raised); color:var(--muted); width:220px; font-size:13px; }
+  .search input { border:0; outline:0; background:none; color:var(--text); font:inherit; width:100%; }
+  .search:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+
+  .chips { display:flex; gap:6px; padding:0 22px 12px; }
+  .chip { height:26px; padding:0 11px; border-radius:999px; border:1px solid var(--border); background:none; font-size:12px; color:var(--muted); }
+  .chip.on { background:var(--text); color:var(--bg); border-color:transparent; }
+  .chip:hover:not(.on) { color:var(--text); }
+
+  .banner { margin:0 22px 10px; padding:8px 12px; border-radius:8px; background:var(--accent-soft); color:var(--text); font-size:12.5px; display:flex; align-items:center; gap:9px; }
+  .banner svg { color:var(--accent); }
+  .banner .x { margin-left:auto; background:none; border:0; color:var(--muted); padding:2px; }
+
+  .list { flex:1; overflow:auto; padding:0 14px 16px; }
+  .row { display:grid; grid-template-columns:40px 1fr 110px 150px 44px 36px; align-items:center; gap:12px; padding:10px 8px; border-radius:9px; border-bottom:1px solid color-mix(in srgb, var(--border) 60%, transparent); transition:background .12s, opacity .3s, transform .3s; }
+  .row:hover { background:var(--panel); }
+  .row.gone { opacity:0; transform:translateX(12px); }
+  .ic { width:36px; height:36px; border-radius:9px; display:grid; place-items:center; font-weight:700; font-size:14px; color:#fff; letter-spacing:-.02em; }
+  .nm { min-width:0; }
+  .nm b { font-weight:600; font-size:13.5px; display:flex; align-items:center; gap:7px; }
+  .nm small { display:block; color:var(--muted); font-size:12px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .src { display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--muted); }
+  .src i { width:6px; height:6px; border-radius:50%; display:block; }
+  .ver { font-family:ui-monospace,Consolas,monospace; font-size:12px; color:var(--muted); }
+  .ver .new { color:var(--accent); }
+  .tag { font-size:10.5px; font-weight:600; padding:2px 7px; border-radius:999px; letter-spacing:.02em; }
+  .tag.warn { background:color-mix(in srgb, var(--warn) 16%, transparent); color:var(--warn); }
+  .tag.mute { background:var(--raised); color:var(--muted); }
+  .act { display:flex; justify-content:flex-start; }
+  .ok-txt { font-size:12px; color:var(--ok); display:inline-flex; align-items:center; gap:5px; }
+  .prog { width:130px; }
+  .prog .bar { height:5px; border-radius:99px; background:var(--raised); overflow:hidden; }
+  .prog .bar i { display:block; height:100%; background:var(--accent); border-radius:99px; transition:width .2s; }
+  .prog small { font-size:11px; color:var(--muted); display:block; margin-top:4px; }
+
+  .tog { width:34px; height:20px; border-radius:99px; background:var(--raised); border:1px solid var(--border); position:relative; padding:0; transition:.15s; }
+  .tog::after { content:""; position:absolute; top:2px; left:2px; width:14px; height:14px; border-radius:50%; background:var(--faint); transition:.15s; }
+  .tog.on { background:var(--accent); border-color:transparent; }
+  .tog.on::after { left:16px; background:var(--accent-ink); }
+  .icon-btn { width:30px; height:30px; border-radius:7px; border:0; background:none; color:var(--faint); display:grid; place-items:center; }
+  .icon-btn:hover { background:var(--danger-soft); color:var(--danger); }
+
+  /* Browse */
+  .bigsearch { margin:0 22px 12px; display:flex; align-items:center; gap:10px; height:44px; padding:0 14px; border:1px solid var(--border); border-radius:10px; background:var(--raised); color:var(--muted); }
+  .bigsearch input { flex:1; border:0; outline:0; background:none; color:var(--text); font:inherit; font-size:14.5px; }
+  .bigsearch:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-soft); }
+  .kbd { font-size:11px; border:1px solid var(--border); border-radius:5px; padding:1px 6px; color:var(--faint); }
+  .grid { flex:1; overflow:auto; padding:0 22px 18px; display:grid; grid-template-columns:1fr 1fr; gap:10px; align-content:start; }
+  .card { border:1px solid var(--border); background:var(--panel); border-radius:var(--radius); padding:14px; display:flex; gap:12px; transition:border-color .15s; }
+  .card:hover { border-color:var(--faint); }
+  .card .info { flex:1; min-width:0; }
+  .card .info b { font-size:14px; font-weight:600; }
+  .card .info .by { color:var(--muted); font-size:12px; margin-top:1px; }
+  .card .info p { margin:7px 0 9px; font-size:12.5px; color:var(--muted); line-height:1.45; }
+  .card .meta { display:flex; gap:10px; align-items:center; font-size:11.5px; color:var(--faint); }
+  .card .side-act { display:flex; flex-direction:column; justify-content:space-between; align-items:flex-end; }
+  .note { font-size:11px; color:var(--warn); max-width:130px; text-align:right; line-height:1.35; }
+
+  /* Settings */
+  .settings { flex:1; overflow:auto; padding:0 22px 22px; }
+  .sec { border:1px solid var(--border); background:var(--panel); border-radius:var(--radius); margin-bottom:12px; }
+  .sec h3 { margin:0; padding:12px 16px; font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:600; border-bottom:1px solid var(--border); }
+  .set { display:flex; align-items:center; gap:14px; padding:12px 16px; border-bottom:1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+  .set:last-child { border-bottom:0; }
+  .set .l { flex:1; }
+  .set .l b { font-size:13.5px; font-weight:500; display:block; }
+  .set .l small { color:var(--muted); font-size:12px; }
+  .field { font-family:ui-monospace,Consolas,monospace; font-size:12px; height:30px; display:flex; align-items:center; padding:0 10px; border:1px solid var(--border); border-radius:7px; background:var(--raised); color:var(--muted); min-width:250px; }
+
+  /* First run */
+  .onboard { position:absolute; inset:38px 0 0 0; background:var(--bg); display:none; place-items:center; z-index:5; }
+  .onboard.on { display:grid; }
+  .ob { width:440px; text-align:center; }
+  .ob h2 { font-family:var(--display); font-size:24px; margin:16px 0 6px; font-weight:600; }
+  .ob p { color:var(--muted); font-size:13.5px; margin:0 0 20px; line-height:1.5; }
+  .found { border:1px solid var(--border); background:var(--panel); border-radius:var(--radius); padding:14px 16px; text-align:left; display:flex; gap:12px; align-items:center; margin-bottom:16px; }
+  .found .l { flex:1; min-width:0; }
+  .found b { font-size:13.5px; }
+  .found small { display:block; font-family:ui-monospace,Consolas,monospace; color:var(--muted); font-size:11.5px; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ob .acts { display:flex; gap:8px; justify-content:center; }
+
+  /* Modal + toast */
+  .scrim { position:absolute; inset:0; background:rgba(0,0,0,.45); display:none; place-items:center; z-index:10; backdrop-filter:blur(2px); }
+  .scrim.on { display:grid; }
+  .modal { width:420px; background:var(--panel); border:1px solid var(--border); border-radius:12px; box-shadow:var(--shadow); padding:20px; animation:pop .16s ease-out; }
+  @keyframes pop { from { transform:scale(.97); opacity:0 } }
+  .modal h3 { margin:0 0 6px; font-family:var(--display); font-size:17px; font-weight:600; }
+  .modal p { margin:0 0 12px; color:var(--muted); font-size:13px; line-height:1.5; }
+  .folders { border:1px solid var(--border); border-radius:8px; background:var(--raised); padding:6px 0; margin-bottom:12px; }
+  .folders div { display:flex; align-items:center; gap:8px; padding:5px 12px; font-family:ui-monospace,Consolas,monospace; font-size:12px; }
+  .folders div.keep { color:var(--faint); }
+  .folders div.keep em { font-family:var(--font); font-style:normal; margin-left:auto; font-size:11.5px; }
+  .check { display:flex; align-items:center; gap:9px; font-size:13px; color:var(--text); margin-bottom:18px; cursor:pointer; }
+  .check input { accent-color:var(--accent); width:15px; height:15px; }
+  .modal .acts { display:flex; justify-content:flex-end; gap:8px; }
+  .toast { position:absolute; bottom:18px; left:50%; transform:translate(-50%, 20px); opacity:0; pointer-events:none; background:var(--text); color:var(--bg); padding:10px 12px 10px 16px; border-radius:9px; display:flex; align-items:center; gap:14px; font-size:13px; transition:.22s; z-index:20; box-shadow:0 10px 30px rgba(0,0,0,.35); }
+  .toast.on { opacity:1; transform:translate(-50%, 0); pointer-events:auto; }
+  .toast button { background:none; border:0; color:var(--accent); font-weight:600; font-size:13px; padding:4px 6px; }
+  [data-theme="parchment"] .toast button { color:#f0b48f; }
+
+  .flow { max-width:1040px; margin:0 auto; padding:0 24px 60px; display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  .flow div { border:1px solid var(--border); background:var(--panel); border-radius:10px; padding:12px 14px; font-size:12.5px; color:var(--muted); line-height:1.5; }
+  .flow b { display:block; color:var(--text); font-size:13px; margin-bottom:3px; }
+</style>
+</head>
+<body data-theme="ember">
+
+<div class="demo">
+  <h1>Kobold Client</h1>
+  <p>Mock-ups. Pick a theme, then click around: switch views, update, install, or delete an addon.</p>
+  <div class="themes" id="themes">
+    <button class="theme-btn on" data-t="ember"><b><span class="sw"><i style="background:#14100d"></i><i style="background:#eba340"></i><i style="background:#f1e7da"></i></span>Ember</b><span>Warm charcoal and candle-gold. Kobold-mine cozy, still minimal.</span></button>
+    <button class="theme-btn" data-t="deepstone"><b><span class="sw"><i style="background:#0e1115"></i><i style="background:#6ea8ff"></i><i style="background:#e6ebf1"></i></span>Deepstone</b><span>Cool slate with a calm blue. The most neutral, tool-like option.</span></button>
+    <button class="theme-btn" data-t="parchment"><b><span class="sw"><i style="background:#f3ede2"></i><i style="background:#b4552b"></i><i style="background:#2a2118"></i></span>Parchment</b><span>Light cream and rust ink with serif headings. Quest-log feel.</span></button>
+    <button class="theme-btn" data-t="fel"><b><span class="sw"><i style="background:#0c0f0b"></i><i style="background:#93d651"></i><i style="background:#e4ecdc"></i></span>Fel</b><span>Near-black with a sharp green accent. Tighter corners, more edge.</span></button>
+  </div>
+  <div class="scenes" id="scenes">
+    <button class="scene on" data-s="installed">Installed</button>
+    <button class="scene" data-s="browse">Browse</button>
+    <button class="scene" data-s="settings">Settings</button>
+    <button class="scene" data-s="onboard">First launch</button>
+    <button class="scene" data-s="delete">Delete confirm</button>
+  </div>
+</div>
+
+<div class="stage">
+<div class="win" id="win">
+  <div class="titlebar">
+    <div class="brand">
+      <svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 2.5c2.6 3 4.6 5.6 4.6 8.6A4.6 4.6 0 0 1 12 15.7a4.6 4.6 0 0 1-4.6-4.6c0-1.6.7-3 1.7-4.3.3 1.3 1 2.2 2 2.6-.4-2.5.4-4.9.9-6.9Z" fill="var(--accent)"/><rect x="8.5" y="16.6" width="7" height="5" rx="1.4" fill="var(--text)" opacity=".85"/></svg>
+      Kobold Client
+    </div>
+    <div class="spacer"></div>
+    <button class="wc" aria-label="Minimize"><svg width="10" height="10"><path d="M0 5h10" stroke="currentColor"/></svg></button>
+    <button class="wc" aria-label="Maximize"><svg width="10" height="10"><rect x=".5" y=".5" width="9" height="9" fill="none" stroke="currentColor"/></svg></button>
+    <button class="wc x" aria-label="Close"><svg width="10" height="10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor"/></svg></button>
+  </div>
+
+  <div class="body">
+    <aside class="side">
+      <nav class="nav" id="nav">
+        <button class="on" data-v="installed">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5M12 13v8"/></svg>
+          Installed <span class="count hot" id="updCount">2</span>
+        </button>
+        <button data-v="browse">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          Browse
+        </button>
+        <button data-v="settings">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+          Settings
+        </button>
+      </nav>
+      <div class="grow"></div>
+      <div class="game">
+        <div class="t"><span class="dot"></span>WoW Forever</div>
+        <div class="s">1.60.1 · Running<br>8 addons · 41 MB</div>
+        <div class="path">D:\games\World of Warcraft\_forever_</div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <!-- Installed -->
+      <section class="view on" id="v-installed">
+        <div class="head">
+          <div><h2>Installed</h2><div class="sub" id="instSub">8 addons · 2 updates available</div></div>
+          <div class="sp"></div>
+          <label class="search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="filter" placeholder="Filter installed"></label>
+          <button class="btn primary" id="updAll"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 20h14"/></svg><span>Update all</span></button>
+        </div>
+        <div class="chips" id="chips">
+          <button class="chip on" data-f="all">All</button>
+          <button class="chip" data-f="upd">Updates</button>
+          <button class="chip" data-f="unm">Unmanaged</button>
+          <button class="chip" data-f="off">Disabled</button>
+        </div>
+        <div class="banner" id="banner">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
+          WoW is running. Changes take effect after <b>/reload</b> in game.
+          <button class="x" onclick="this.parentElement.remove()" aria-label="Dismiss">✕</button>
+        </div>
+        <div class="list" id="list"></div>
+      </section>
+
+      <!-- Browse -->
+      <section class="view" id="v-browse">
+        <div class="head">
+          <div><h2>Browse</h2><div class="sub">Showing addons built for Forever</div></div>
+          <div class="sp"></div>
+          <button class="btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>Add from URL</button>
+          <button class="btn"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 14v5h16v-5M12 4v10m-4-4 4 4 4-4"/></svg>Import .zip</button>
+        </div>
+        <label class="bigsearch"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input placeholder="Search CurseForge and GitHub" value="bags"><span class="kbd">Ctrl K</span></label>
+        <div class="chips">
+          <button class="chip on">All sources</button>
+          <button class="chip">CurseForge</button>
+          <button class="chip">GitHub</button>
+          <button class="chip">Most downloaded</button>
+          <button class="chip">Recently updated</button>
+        </div>
+        <div class="grid" id="grid"></div>
+      </section>
+
+      <!-- Settings -->
+      <section class="view" id="v-settings">
+        <div class="head"><div><h2>Settings</h2><div class="sub">Kobold Client 0.1.0 · by Rique</div></div></div>
+        <div class="settings">
+          <div class="sec"><h3>Game</h3>
+            <div class="set"><div class="l"><b>Install folder</b><small>Detected automatically from Battle.net</small></div><div class="field">D:\games\World of Warcraft\_forever_</div><button class="btn sm">Change</button></div>
+            <div class="set"><div class="l"><b>Check for updates on launch</b><small>Only checks. Nothing installs without you.</small></div><button class="tog on"></button></div>
+            <div class="set"><div class="l"><b>Update automatically</b><small>Install updates on launch, except pinned addons</small></div><button class="tog"></button></div>
+          </div>
+          <div class="sec"><h3>Sources</h3>
+            <div class="set"><div class="l"><b>CurseForge API key</b><small>Stored in Windows Credential Manager</small></div><div class="field">••••••••••••••••a91f</div><span class="ok-txt">✓ Valid</span></div>
+            <div class="set"><div class="l"><b>GitHub token</b><small>Optional. Raises the hourly request limit.</small></div><button class="btn sm">Add token</button></div>
+          </div>
+          <div class="sec"><h3>Troubleshooting</h3>
+            <div class="set"><div class="l"><b>Verbose logging</b><small>More detail in the log files. Turn on when reporting a bug.</small></div><button class="tog"></button></div>
+            <div class="set"><div class="l"><b>Logs</b><small>%LOCALAPPDATA%\KoboldClient\logs</small></div><button class="btn sm">Open folder</button><button class="btn sm">Export diagnostics</button></div>
+            <div class="set"><div class="l"><b>Rescan AddOns folder</b><small>Re-matches addons you installed by hand</small></div><button class="btn sm">Rescan</button></div>
+          </div>
+        </div>
+      </section>
+
+      <div class="toast" id="toast"><span id="toastMsg"></span><button id="toastUndo">Undo</button></div>
+    </main>
+  </div>
+
+  <!-- First launch -->
+  <div class="onboard" id="onboard">
+    <div class="ob">
+      <svg width="56" height="56" viewBox="0 0 24 24"><path d="M12 2.5c2.6 3 4.6 5.6 4.6 8.6A4.6 4.6 0 0 1 12 15.7a4.6 4.6 0 0 1-4.6-4.6c0-1.6.7-3 1.7-4.3.3 1.3 1 2.2 2 2.6-.4-2.5.4-4.9.9-6.9Z" fill="var(--accent)"/><rect x="8.5" y="16.6" width="7" height="5" rx="1.4" fill="var(--text)" opacity=".85"/></svg>
+      <h2>Welcome to Kobold Client</h2>
+      <p>You no take candle. We found your game.</p>
+      <div class="found">
+        <span class="dot"></span>
+        <div class="l"><b>World of Warcraft: Forever 1.60.1</b><small>D:\games\World of Warcraft\_forever_</small></div>
+      </div>
+      <div class="acts">
+        <button class="btn primary" onclick="closeOnboard()">Use this folder</button>
+        <button class="btn ghost">Choose another…</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete modal -->
+  <div class="scrim" id="scrim">
+    <div class="modal">
+      <h3 id="mTitle">Remove Questie?</h3>
+      <p>These folders will be moved to the Recycle Bin. You can restore them from there.</p>
+      <div class="folders" id="mFolders"></div>
+      <label class="check"><input type="checkbox"> Also delete its saved settings</label>
+      <div class="acts">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn danger" id="mConfirm">Remove</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="flow">
+  <div><b>1 · Open</b>First launch finds Forever through Battle.net. One click to confirm, or pick a folder yourself.</div>
+  <div><b>2 · Find</b>Browse searches CurseForge and GitHub together. Only Forever builds are shown, and Install is one click.</div>
+  <div><b>3 · Keep fresh</b>The Updates badge counts what's behind. "Update all", or update one row. Pinned addons stay put.</div>
+  <div><b>4 · Remove</b>Trash icon, then confirm. Shared libraries are kept, and the folders go to the Recycle Bin with Undo.</div>
+</div>
+
+<script>
+const ICON_COLORS = ["#c0563a","#3f7fc4","#5a9a4c","#9b59b6","#c08a2f","#2f9a8f","#7a6a5a","#b04a6a"];
+const addons = [
+  { id:"questie",  name:"Questie",       by:"Aldor",      src:"CurseForge", v:"10.4.2", nv:"10.4.3", on:true,  folders:["Questie"], keep:[["Ace3","also used by Bagnon"]] },
+  { id:"details",  name:"Details!",      by:"Terciob",    src:"CurseForge", v:"1.60.142", nv:"1.60.150", on:true, folders:["Details","Details_DataStorage","Details_TinyThreat"] },
+  { id:"bagnon",   name:"Bagnon",        by:"Jaliborc",   src:"CurseForge", v:"1.60.3", on:true,  folders:["Bagnon","Bagnon_Config","BagBrother"], keep:[["Ace3","also used by Questie"]] },
+  { id:"tomtom",   name:"TomTom",        by:"Cladhaire",  src:"GitHub",     v:"v4.1.0", on:true,  folders:["TomTom"] },
+  { id:"leatrix",  name:"Leatrix Plus",  by:"Leatrix",    src:"CurseForge", v:"1.60.08", on:false, folders:["Leatrix_Plus"] },
+  { id:"omnicc",   name:"OmniCC",        by:"Tuller",     src:"GitHub",     v:"11.2.0", on:true,  folders:["OmniCC","OmniCC_Config"] },
+  { id:"mybars",   name:"MyBars",        by:"Installed by hand", src:"Unmanaged", v:"—", on:true, unm:true, folders:["MyBars"] },
+  { id:"oldmap",   name:"ClassicMapPins",by:"Only has a Classic build", src:"CurseForge", v:"2.3.1", on:false, nf:true, folders:["ClassicMapPins"] },
+];
+const SRC_COL = { CurseForge:"#f16436", GitHub:"var(--muted)", Unmanaged:"var(--faint)" };
+let filter = "all", query = "";
+
+function initials(n){ return n.replace(/[^A-Za-z ]/g,"").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase(); }
+function color(id){ let h=0; for(const c of id) h=(h*31+c.charCodeAt(0))>>>0; return ICON_COLORS[h%ICON_COLORS.length]; }
+
+function renderList(){
+  const L = document.getElementById("list"); L.innerHTML = "";
+  addons.filter(a =>
+    (filter==="all") || (filter==="upd" && a.nv) || (filter==="unm" && a.unm) || (filter==="off" && !a.on)
+  ).filter(a => a.name.toLowerCase().includes(query)).forEach(a => {
+    const r = document.createElement("div"); r.className="row"; r.id="row-"+a.id;
+    let action;
+    if (a.busy!=null) action = `<div class="prog"><div class="bar"><i style="width:${a.busy}%"></i></div><small>${a.busy<70?"Downloading":a.busy<90?"Verifying":"Installing"} · ${a.busy}%</small></div>`;
+    else if (a.nv) action = `<button class="btn sm primary" onclick="update('${a.id}')">Update</button>`;
+    else if (a.unm) action = `<button class="btn sm">Link to source</button>`;
+    else action = `<span class="ok-txt">✓ Up to date</span>`;
+    const tag = a.unm ? `<span class="tag mute">Unmanaged</span>` : a.nf ? `<span class="tag warn">Not built for Forever</span>` : "";
+    r.innerHTML = `
+      <div class="ic" style="background:${color(a.id)}${a.on?"":";opacity:.45"}">${initials(a.name)}</div>
+      <div class="nm"><b>${a.name} ${tag}</b><small>${a.by}</small></div>
+      <div><span class="src"><i style="background:${SRC_COL[a.src]}"></i>${a.src}</span></div>
+      <div class="act">${action}</div>
+      <div><button class="tog ${a.on?"on":""}" title="${a.on?"Disable":"Enable"}" onclick="toggle('${a.id}')"></button></div>
+      <div><button class="icon-btn" title="Delete" onclick="askDelete('${a.id}')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>`;
+    r.querySelector(".nm small").insertAdjacentHTML("beforeend", a.v!=="—" ? ` · <span class="ver">${a.v}${a.nv?` <span class="new">→ ${a.nv}</span>`:""}</span>` : "");
+    L.appendChild(r);
+  });
+  const upd = addons.filter(a=>a.nv).length;
+  document.getElementById("updCount").textContent = upd;
+  document.getElementById("updCount").style.display = upd ? "" : "none";
+  document.getElementById("instSub").textContent = `${addons.length} addons · ${upd ? upd+" update"+(upd>1?"s":"")+" available" : "all up to date"}`;
+  const ua = document.getElementById("updAll"); ua.disabled = !upd; ua.style.opacity = upd?1:.45;
+  ua.querySelector("span").textContent = upd ? `Update all (${upd})` : "Up to date";
+}
+
+function update(id){
+  const a = addons.find(x=>x.id===id); if(!a || a.busy!=null) return;
+  a.busy = 0;
+  const t = setInterval(()=>{ a.busy = Math.min(100, a.busy + 6 + Math.round(Math.random()*8));
+    if(a.busy>=100){ clearInterval(t); delete a.busy; a.v=a.nv; delete a.nv; showToast(`${a.name} updated to ${a.v}`, false); }
+    renderList(); }, 140);
+  renderList();
+}
+document.getElementById("updAll").onclick = () => addons.filter(a=>a.nv).forEach(a=>update(a.id));
+
+function toggle(id){ const a=addons.find(x=>x.id===id); a.on=!a.on; renderList(); showToast(`${a.name} ${a.on?"enabled":"disabled"}. Applies after /reload.`, false); }
+
+let pending=null, lastRemoved=null;
+function askDelete(id){
+  const a = addons.find(x=>x.id===id) || addons[0]; pending=a;
+  document.getElementById("mTitle").textContent = `Remove ${a.name}?`;
+  const f = document.getElementById("mFolders");
+  f.innerHTML = a.folders.map(n=>`<div>📁 Interface\\AddOns\\${n}</div>`).join("") +
+    (a.keep||[]).map(([n,why])=>`<div class="keep">📁 ${n} <em>Kept, ${why}</em></div>`).join("");
+  document.getElementById("scrim").classList.add("on");
+}
+function closeModal(){ document.getElementById("scrim").classList.remove("on"); }
+document.getElementById("mConfirm").onclick = () => {
+  const a = pending; closeModal(); const row = document.getElementById("row-"+a.id);
+  if(row) row.classList.add("gone");
+  setTimeout(()=>{ const i=addons.indexOf(a); if(i>=0){ addons.splice(i,1); lastRemoved=[a,i]; } renderList(); showToast(`${a.name} moved to Recycle Bin`, true); }, 260);
+};
+document.getElementById("toastUndo").onclick = () => { if(lastRemoved){ addons.splice(lastRemoved[1],0,lastRemoved[0]); lastRemoved=null; renderList(); } hideToast(); };
+let toastT;
+function showToast(msg, undo){ document.getElementById("toastMsg").textContent=msg; document.getElementById("toastUndo").style.display=undo?"":"none"; const t=document.getElementById("toast"); t.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(hideToast, undo?10000:2600); }
+function hideToast(){ document.getElementById("toast").classList.remove("on"); }
+
+document.getElementById("chips").onclick = e => { const b=e.target.closest(".chip"); if(!b) return; filter=b.dataset.f; document.querySelectorAll("#chips .chip").forEach(c=>c.classList.toggle("on",c===b)); renderList(); };
+document.getElementById("filter").oninput = e => { query=e.target.value.toLowerCase(); renderList(); };
+
+// Browse
+const results = [
+  { id:"bagnon", name:"Bagnon", by:"Jaliborc", d:"Single-window bags with search, item quality borders and offline viewing of alts.", dl:"48.2M", up:"2 days ago", src:"CurseForge", state:"installed" },
+  { id:"adibags", name:"AdiBags", by:"Adirelle", d:"Sorts your bags into smart categories automatically. Fully configurable filters.", dl:"21.7M", up:"5 days ago", src:"CurseForge", state:"install" },
+  { id:"baganator", name:"Baganator", by:"plusmouse", d:"Clean bag and bank view with sorting, junk detection and cross-character search.", dl:"9.4M", up:"today", src:"GitHub", state:"install" },
+  { id:"arkinv", name:"ArkInventory", by:"arkayenro", d:"Bag replacement with rule-based sorting and layouts for every container.", dl:"30.1M", up:"1 week ago", src:"CurseForge", state:"blocked" },
+];
+function renderGrid(){
+  const G = document.getElementById("grid"); G.innerHTML="";
+  results.forEach(r=>{
+    let act;
+    if (r.state==="installed") act = `<span class="ok-txt">✓ Installed</span>`;
+    else if (r.state==="blocked") act = `<button class="btn sm">Open page ↗</button><div class="note">Author only allows downloads from the CurseForge site</div>`;
+    else if (typeof r.state==="number") act = `<div class="prog" style="width:100px"><div class="bar"><i style="width:${r.state}%"></i></div><small>${r.state}%</small></div>`;
+    else act = `<button class="btn sm primary" onclick="install('${r.id}')">Install</button>`;
+    const c = document.createElement("div"); c.className="card";
+    c.innerHTML = `<div class="ic" style="background:${color(r.id)}">${initials(r.name)}</div>
+      <div class="info"><b>${r.name}</b><div class="by">${r.by}</div><p>${r.d}</p>
+      <div class="meta"><span class="src"><i style="background:${SRC_COL[r.src]}"></i>${r.src}</span><span>↓ ${r.dl}</span><span>Updated ${r.up}</span></div></div>
+      <div class="side-act">${act}</div>`;
+    G.appendChild(c);
+  });
+}
+function install(id){
+  const r = results.find(x=>x.id===id); r.state=0;
+  const t=setInterval(()=>{ r.state=Math.min(100,r.state+9); if(r.state>=100){ clearInterval(t); r.state="installed";
+    addons.unshift({ id:r.id, name:r.name, by:r.by, src:r.src, v:"1.60.0", on:true, folders:[r.name] }); renderList(); showToast(`${r.name} installed`, false); }
+    renderGrid(); }, 120);
+  renderGrid();
+}
+
+// Navigation
+function show(v){
+  document.querySelectorAll(".view").forEach(s=>s.classList.toggle("on", s.id==="v-"+v));
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on", b.dataset.v===v));
+}
+document.getElementById("nav").onclick = e => { const b=e.target.closest("button"); if(b){ show(b.dataset.v); setScene(b.dataset.v); } };
+function closeOnboard(){ document.getElementById("onboard").classList.remove("on"); setScene("installed"); }
+function setScene(s){ document.querySelectorAll(".scene").forEach(b=>b.classList.toggle("on", b.dataset.s===s)); }
+document.getElementById("scenes").onclick = e => {
+  const b=e.target.closest(".scene"); if(!b) return; const s=b.dataset.s; setScene(s);
+  document.getElementById("onboard").classList.toggle("on", s==="onboard"); closeModal();
+  if (s==="delete"){ show("installed"); askDelete("questie"); }
+  else if (s!=="onboard") show(s);
+};
+document.getElementById("themes").onclick = e => { const b=e.target.closest(".theme-btn"); if(!b) return; document.body.dataset.theme=b.dataset.t; document.querySelectorAll(".theme-btn").forEach(x=>x.classList.toggle("on",x===b)); };
+
+renderList(); renderGrid();
+</script>
+</body>
+</html>

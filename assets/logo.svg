@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2019"/>
+      <stop offset="1" stop-color="#140f0b"/>
+    </linearGradient>
+    <linearGradient id="flame" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffd98a"/>
+      <stop offset=".55" stop-color="#f2a23a"/>
+      <stop offset="1" stop-color="#d9731f"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".42" r=".45">
+      <stop offset="0" stop-color="#f2a23a" stop-opacity=".38"/>
+      <stop offset="1" stop-color="#f2a23a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="wax" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#efe3cf"/>
+      <stop offset="1" stop-color="#cdbb9f"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#bg)"/>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#glow)"/>
+  <path d="M512 150c92 104 168 196 168 304a168 168 0 0 1-336 0c0-58 25-110 62-156 11 47 37 80 74 95-16-92 13-178 32-243Z" fill="url(#flame)"/>
+  <path d="M512 330c40 50 72 92 72 140a72 72 0 0 1-144 0c0-46 36-88 72-140Z" fill="#fff3d6" opacity=".9"/>
+  <rect x="384" y="646" width="256" height="220" rx="44" fill="url(#wax)"/>
+  <path d="M384 690c0-24 20-44 44-44h168c24 0 44 20 44 44v8c-30 0-34 34-64 34s-34-30-64-30-34 40-64 40-34-34-64-34z" fill="#fffaf0" opacity=".85"/>
+</svg>

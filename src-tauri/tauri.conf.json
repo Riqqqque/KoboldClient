@@ -1,0 +1,62 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kobold Client",
+  "version": "0.1.0",
+  "identifier": "com.rique.koboldclient",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "Kobold Client",
+        "width": 1080,
+        "height": 700,
+        "minWidth": 820,
+        "minHeight": 540,
+        "decorations": false,
+        "center": true,
+        "visible": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: https://media.forgecdn.net https://*.forgecdn.net https://avatars.githubusercontent.com; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "createUpdaterArtifacts": true,
+    "publisher": "Rique",
+    "copyright": "Copyright (c) 2026 Rique",
+    "category": "Utility",
+    "shortDescription": "Addon manager for World of Warcraft: Forever",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IERENENEODhDQjdBRDQxOTgKUldTWVFhMjNqTmhNM1dtMng1dFhQSUU4TXdaQm1FNGM4eENpNCtwQ1lKc0FyakQ3VFNhUFpOWncK",
+      "endpoints": [
+        "https://github.com/Riqqqque/KoboldClient/releases/latest/download/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

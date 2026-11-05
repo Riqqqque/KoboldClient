@@ -1,0 +1,69 @@
+[package]
+name = "kobold-client"
+version = "0.1.0"
+description = "A small, fast addon manager for World of Warcraft: Forever"
+authors = ["Rique"]
+license = "MIT"
+repository = "https://github.com/Riqqqque/KoboldClient"
+edition = "2021"
+rust-version = "1.80"
+
+[lib]
+name = "kobold_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["fs", "time", "sync", "macros", "rt-multi-thread"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json", "stream", "query", "system-proxy"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+url = "2"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+sha1 = "0.10"
+sha2 = "0.10"
+md-5 = "0.10"
+hex = "0.4"
+trash = "5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "registry"] }
+tracing-appender = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Cryptography",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_Threading",
+  "Win32_System_Memory",
+  "Win32_Storage_FileSystem",
+] }
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.dev]
+# Keeps the target folder small; turn on locally when you need a debugger.
+debug = 0
+
+[profile.dev.package."*"]
+opt-level = 1
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
