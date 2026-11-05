@@ -1,11 +1,13 @@
 //! CurseForge Core API (https://docs.curseforge.com/rest-api/).
 
+use std::collections::HashMap;
+
 use serde::Deserialize;
 use tokio::sync::OnceCell;
 
 use super::{RemoteAddon, Resolved};
 use crate::error::{Error, Result};
-use crate::manifest::Source;
+use crate::manifest::{Requirement, Source};
 use crate::net::{check, Expected};
 
 const API: &str = "https://api.curseforge.com";
@@ -101,6 +103,8 @@ pub struct FileIndex {
 struct File {
     id: u64,
     #[serde(default)]
+    mod_id: u64,
+    #[serde(default)]
     display_name: String,
     #[serde(default)]
     download_url: Option<String>,
@@ -108,6 +112,34 @@ struct File {
     hashes: Vec<Hash>,
     #[serde(default = "yes")]
     is_available: bool,
+    #[serde(default)]
+    dependencies: Vec<Dependency>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Dependency {
+    mod_id: u64,
+    /// 1 embedded library, 2 optional, 3 required, 4 tool, 5 incompatible, 6 include.
+    relation_type: u8,
+}
+
+const REQUIRED: u8 = 3;
+
+impl File {
+    /// Mod ids this file can't work without. Embedded libraries are already inside
+    /// the zip and optional ones are up to the user, so only "required" counts.
+    fn required_mods(&self) -> Vec<u64> {
+        let mut ids: Vec<u64> = self
+            .dependencies
+            .iter()
+            .filter(|d| d.relation_type == REQUIRED && d.mod_id != self.mod_id && d.mod_id != 0)
+            .map(|d| d.mod_id)
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids
+    }
 }
 
 fn yes() -> bool {
@@ -259,6 +291,7 @@ impl CurseForge<'_> {
         let file: File = self
             .get(&format!("/v1/mods/{}/files/{file_id}", m.id), &[])
             .await?;
+        let requires = self.requirements(&file.required_mods()).await?;
         let Some(url) = file
             .download_url
             .filter(|u| !u.is_empty() && file.is_available)
@@ -294,7 +327,57 @@ impl CurseForge<'_> {
             expected,
             file_id: Some(file.id),
             release_tag: None,
+            requires,
         })
+    }
+
+    /// Turns mod ids into requirements with display names.
+    async fn requirements(&self, ids: &[u64]) -> Result<Vec<Requirement>> {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let mods = self.mods(ids).await?;
+        Ok(ids
+            .iter()
+            .map(|id| Requirement {
+                id: format!("cf:{id}"),
+                name: mods
+                    .iter()
+                    .find(|m| m.id == *id)
+                    .map(|m| m.name.trim().to_string())
+                    .unwrap_or_else(|| format!("CurseForge addon {id}")),
+            })
+            .collect())
+    }
+
+    /// Required addons for installed files, keyed by file id. Used to fill in lists
+    /// written before Kobold tracked dependencies.
+    pub async fn file_requirements(
+        &self,
+        file_ids: &[u64],
+    ) -> Result<HashMap<u64, Vec<Requirement>>> {
+        if file_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let files: Vec<File> = self
+            .post("/v1/mods/files", serde_json::json!({ "fileIds": file_ids }))
+            .await?;
+        let mut all: Vec<u64> = files.iter().flat_map(|f| f.required_mods()).collect();
+        all.sort_unstable();
+        all.dedup();
+        let named = self.requirements(&all).await?;
+        Ok(files
+            .iter()
+            .map(|f| {
+                let ids = f.required_mods();
+                let reqs = named
+                    .iter()
+                    .filter(|r| ids.iter().any(|id| r.id == format!("cf:{id}")))
+                    .cloned()
+                    .collect();
+                (f.id, reqs)
+            })
+            .collect())
     }
 }
 
@@ -347,6 +430,26 @@ mod tests {
         assert_eq!(clean_display_name("Questie-10.4.3", "Questie"), "10.4.3");
         assert_eq!(clean_display_name("Bagnon v1.60.3", "Bagnon"), "1.60.3");
         assert_eq!(clean_display_name("1.2.0", "X"), "1.2.0");
+    }
+
+    #[test]
+    fn only_required_dependencies_count() {
+        // Shape of Questie 12.6's file: bundled libraries (1) and two required addons (3).
+        let f: File = serde_json::from_value(serde_json::json!({
+            "id": 9444002, "modId": 334372, "displayName": "v12.6.0",
+            "dependencies": [
+                { "modId": 14328, "relationType": 1 },
+                { "modId": 1696795, "relationType": 3 },
+                { "modId": 1695789, "relationType": 3 },
+                { "modId": 1696795, "relationType": 3 },
+                { "modId": 77, "relationType": 2 },
+                { "modId": 334372, "relationType": 3 }
+            ]
+        }))
+        .unwrap();
+        assert_eq!(f.required_mods(), vec![1695789, 1696795]);
+        let none: File = serde_json::from_value(serde_json::json!({ "id": 1 })).unwrap();
+        assert!(none.required_mods().is_empty());
     }
 
     #[test]

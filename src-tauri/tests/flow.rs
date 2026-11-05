@@ -197,3 +197,75 @@ async fn live_github_resolve() {
         }
     }
 }
+
+/// Copies this PC's saved CurseForge key into a fresh data folder. DPAPI keys only
+/// decrypt for the same Windows user, so this only works on the machine that saved it.
+fn live_fixture(manifest: Option<&str>) -> Option<Fixture> {
+    let key = PathBuf::from(std::env::var("APPDATA").ok()?)
+        .join("com.rique.koboldclient")
+        .join("curseforge.key.bin");
+    if !key.exists() {
+        println!("no CurseForge key on this PC; skipping");
+        return None;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let wow = tmp.path().join("World of Warcraft");
+    let root = wow.join("_forever_");
+    fs::create_dir_all(root.join("Interface").join("AddOns")).unwrap();
+    fs::write(root.join("Wow.exe"), b"").unwrap();
+    fs::write(
+        wow.join(".build.info"),
+        "Branch!STRING:0|Version!STRING:0|Product!STRING:0\nus|1.60.1.70790|wowf\n",
+    )
+    .unwrap();
+    let data = tmp.path().join("app").join("data");
+    fs::create_dir_all(&data).unwrap();
+    fs::copy(&key, data.join("curseforge.key.bin")).unwrap();
+    if let Some(m) = manifest {
+        fs::write(data.join("manifest.json"), m).unwrap();
+    }
+    let base = tmp.path().join("app");
+    let core = Core::new(data, base.join("cache"), base.join("logs"), None);
+    core.set_game_root(&wow).unwrap();
+    Some(Fixture {
+        _tmp: tmp,
+        root,
+        core,
+    })
+}
+
+#[tokio::test]
+#[ignore]
+async fn live_curseforge_requirements() {
+    // A Questie entry as 0.1.1 wrote it: no requirement list, QuestieDB not installed.
+    let legacy = r#"{"schema":1,"addons":[{"id":"cf:334372","name":"Questie","source":"curseforge","version":"v12.6.0","file_id":9444002,"folders":["Questie"]}]}"#;
+    let Some(f) = live_fixture(Some(legacy)) else {
+        return;
+    };
+    let r = f.core.repair_requirements(&noop).await.unwrap();
+    println!("repair: {r:?}");
+    assert!(r.failed.is_empty());
+    for name in ["QuestieDB", "QuestieTrace"] {
+        assert!(
+            r.installed.iter().any(|n| n == name),
+            "{name} not installed"
+        );
+    }
+    let addons = f.root.join("Interface").join("AddOns");
+    for e in fs::read_dir(&addons).unwrap().flatten() {
+        println!("  AddOns/{}", e.file_name().to_string_lossy());
+    }
+    let list = f.core.list_installed().unwrap();
+    let questie = list.iter().find(|a| a.id == "cf:334372").unwrap();
+    assert!(questie.missing_deps.is_empty());
+    // A second run has nothing left to do and makes no requests.
+    let again = f.core.repair_requirements(&noop).await.unwrap();
+    assert!(again.installed.is_empty());
+
+    // A fresh install of Questie pulls both in.
+    let Some(g) = live_fixture(None) else { return };
+    let out = g.core.install("cf:334372", &noop).await.unwrap();
+    println!("install: {} also {:?}", out.addon.name, out.also_installed);
+    assert_eq!(out.also_installed.len(), 2);
+    assert!(out.addon.missing_deps.is_empty());
+}

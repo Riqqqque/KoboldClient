@@ -15,6 +15,7 @@ Find addons, install them, keep them updated, and remove them cleanly.</p>
 - **Forever builds only.** Browse shows only addons that publish a Forever build. Anything installed by hand that isn't built for Forever gets a clear label.
 - **CurseForge, GitHub and zip files.** Search CurseForge, paste a GitHub repository, or import a `.zip` you downloaded.
 - **Verified downloads.** Every download is checked against the SHA-1 or SHA-256 the source publishes. A file that doesn't match is thrown away and nothing changes.
+- **Dependencies handled.** If an addon needs another addon to work, Kobold installs both and warns you before you remove one that's still needed.
 - **Installs that can't half-fail.** New files are staged next to `AddOns` and swapped in at once. If anything goes wrong, the old version is put back. If the PC crashes mid-install, the next launch repairs it.
 - **Safe delete.** Removed addons go to the Recycle Bin, with an Undo button. Libraries that another addon still uses are kept. Saved settings stay unless you choose to delete them.
 - **Play button.** Start the game from Kobold. It goes through Battle.net so you stay signed in.

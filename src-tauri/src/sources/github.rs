@@ -157,6 +157,7 @@ impl GitHub<'_> {
             expected,
             file_id: None,
             release_tag: Some(release.tag_name),
+            requires: vec![],
         })
     }
 

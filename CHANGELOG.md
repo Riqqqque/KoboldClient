@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2
+
+- **Required addons are installed too.** When a CurseForge addon lists another addon as required, Kobold installs that one first. Questie 12.6, for example, needs QuestieDB and QuestieTrace and showed `LibQuestieDB` Lua errors without them.
+- Addons installed with an older version are checked once on launch, and missing required addons are added automatically.
+- The Installed list marks an addon that's missing a required addon ("Needs …") and offers **Install missing**.
+- Removing an addon that another one needs now says so first.
+
 ## 0.1.1
 
 - **Play button.** Start WoW Forever from the sidebar. It launches through Battle.net so you stay signed in, falls back to `Wow.exe` if Battle.net isn't installed, and switches to "Playing" once the game is up.

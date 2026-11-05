@@ -1,6 +1,6 @@
 <script lang="ts">
   import { api, type AddonView, type DeletePreview } from "../lib/api";
-  import { app, fail, refreshInstalled, toast } from "../lib/store.svelte";
+  import { app, fail, joinNames, refreshInstalled, toast } from "../lib/store.svelte";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
 
@@ -58,6 +58,9 @@
         <div class="keep"><Icon name="folder" size={14} /> {f} <em>Kept, also used by {other}</em></div>
       {/each}
     </div>
+    {#if preview.needed_by.length}
+      <p class="warn">{joinNames(preview.needed_by)} {preview.needed_by.length > 1 ? "need" : "needs"} this addon and won't work without it.</p>
+    {/if}
     {#if preview.saved_variables > 0}
       <label class="check">
         <input type="checkbox" bind:checked={deleteSettings} />
@@ -83,5 +86,5 @@
   .folders .keep em { font-family: var(--font); font-style: normal; margin-left: auto; font-size: 11.5px; }
   .check { display: flex; align-items: center; gap: 9px; font-size: 13px; cursor: pointer; }
   .check input { accent-color: var(--accent); width: 15px; height: 15px; }
-  .warn { color: var(--warn) !important; margin: 10px 0 0 !important; font-size: 12.5px !important; }
+  .warn { color: var(--warn) !important; margin: 10px 0 12px !important; font-size: 12.5px !important; }
 </style>

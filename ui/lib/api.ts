@@ -40,6 +40,24 @@ export interface AddonView {
   folders: string[];
   built_for_forever: boolean;
   missing: boolean;
+  /** Required addons that aren't installed, so this one won't work yet. */
+  missing_deps: Requirement[];
+}
+
+export interface Requirement {
+  id: string;
+  name: string;
+}
+
+export interface InstallOutcome {
+  addon: AddonView;
+  also_installed: string[];
+}
+
+export interface RepairOutcome {
+  installed: string[];
+  needed_by: string[];
+  failed: string[];
 }
 
 export interface RemoteAddon {
@@ -67,6 +85,7 @@ export interface DeletePreview {
   folders: string[];
   kept: [string, string][];
   saved_variables: number;
+  needed_by: string[];
 }
 
 export interface Removed {
@@ -107,7 +126,9 @@ export const api = {
   installed: () => call<AddonView[]>("list_installed"),
   search: (source: "curseforge" | "github", query: string, sort: string) =>
     call<RemoteAddon[]>("search", { source, query, sort }),
-  install: (id: string) => call<AddonView>("install", { id }),
+  install: (id: string) => call<InstallOutcome>("install", { id }),
+  installRequirements: (id: string) => call<string[]>("install_requirements", { id }),
+  repairRequirements: () => call<RepairOutcome>("repair_requirements"),
   importZip: (path: string) => call<AddonView>("import_zip", { path }),
   checkUpdates: () => call<AddonView[]>("check_updates"),
   deletePreview: (id: string) => call<DeletePreview>("delete_preview", { id }),

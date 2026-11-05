@@ -15,10 +15,10 @@ const state: StateView = {
   log_dir: "C:\\Users\\you\\AppData\\Local\\com.rique.koboldclient\\logs",
 };
 
-const base = { summary: "", project_url: null, pinned: false, missing: false, built_for_forever: true, new_version: null, enabled: true, icon_url: null } as const;
+const base = { summary: "", project_url: null, pinned: false, missing: false, missing_deps: [] as AddonView["missing_deps"], built_for_forever: true, new_version: null, enabled: true, icon_url: null } as const;
 let installed: AddonView[] = [
   { ...base, id: "gh:sample/bossmod", name: "Sample Boss Mod", author: "Sample Author", source: "github", version: "427.8", new_version: "428.0", icon_url: gh("github"), folders: ["SampleBoss", "SampleBoss_Core"] },
-  { ...base, id: "cf:1", name: "Quest Helper", author: "Sample Author", source: "curseforge", version: "10.4.2", folders: ["QuestHelper"] },
+  { ...base, id: "cf:1", name: "Quest Helper", author: "Sample Author", source: "curseforge", version: "10.4.2", folders: ["QuestHelper"], missing_deps: [{ id: "cf:90", name: "Quest Helper Data" }] },
   { ...base, id: "cf:2", name: "Tweaks Plus", author: "Sample Author", source: "curseforge", version: "1.60.08", enabled: false, folders: ["TweaksPlus"] },
   { ...base, id: "gh:sample/waypoints", name: "Waypoints", author: "Sample Author", source: "github", version: "4.1.0", pinned: true, icon_url: gh("octocat"), folders: ["Waypoints"] },
   { ...base, id: "local:MyBars", name: "MyBars", author: "", source: null, version: null, folders: ["MyBars", "MyBars_Options"] },
@@ -50,7 +50,8 @@ mockIPC((cmd, args) => {
       return state.settings;
     case "delete_preview": {
       const x = installed.find((i) => i.id === a.id)!;
-      return { name: x.name, folders: x.folders, kept: [], saved_variables: 2 };
+      const needed_by = installed.filter((i) => i.missing_deps.some((d) => d.id === a.id)).map((i) => i.name);
+      return { name: x.name, folders: x.folders, kept: [], saved_variables: 2, needed_by: a.id === "cf:2" ? ["Quest Helper"] : needed_by };
     }
     case "remove_addon": {
       const x = installed.find((i) => i.id === a.id)!;
@@ -64,6 +65,20 @@ mockIPC((cmd, args) => {
     case "set_enabled":
       installed = installed.map((i) => (i.id === a.id ? { ...i, enabled: Boolean(a.enabled) } : i));
       return null;
+    case "repair_requirements":
+      return { installed: [], needed_by: [], failed: [] };
+    case "install_requirements": {
+      const x = installed.find((i) => i.id === a.id)!;
+      const names = x.missing_deps.map((d) => d.name);
+      return new Promise((res) =>
+        setTimeout(() => {
+          installed = [...installed, ...x.missing_deps.map((d) => ({ ...base, id: d.id, name: d.name, author: "Sample Author", source: "curseforge" as const, version: "1.0.0", folders: [d.name] }))]
+            .map((i) => (i.id === x.id ? { ...i, missing_deps: [] } : i))
+            .sort((p, q) => p.name.localeCompare(q.name));
+          res(names);
+        }, 1200),
+      );
+    }
     case "install": {
       const r = results.find((x) => x.id === a.id);
       const existing = installed.find((x) => x.id === a.id);
@@ -72,11 +87,11 @@ mockIPC((cmd, args) => {
           if (existing) {
             existing.version = existing.new_version ?? existing.version;
             existing.new_version = null;
-            res(existing);
+            res({ addon: existing, also_installed: [] });
           } else if (r) {
             const v: AddonView = { ...base, id: r.id, name: r.name, author: r.author, source: r.source, version: "1.0.0", icon_url: r.icon_url, folders: [r.name] };
             installed = [...installed, v];
-            res(v);
+            res({ addon: v, also_installed: r.id === "cf:10" ? ["Sample Bags Data"] : [] });
           }
         }, 900),
       );

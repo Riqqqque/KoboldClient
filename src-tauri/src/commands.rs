@@ -7,7 +7,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::error::{Error, Result};
 use crate::game::GameInfo;
-use crate::service::{AddonView, Core, DeletePreview, Progress, Removed, StateView};
+use crate::service::{
+    AddonView, Core, DeletePreview, InstallOutcome, Progress, Removed, RepairOutcome, StateView,
+};
 use crate::settings::Settings;
 use crate::sources::RemoteAddon;
 
@@ -73,8 +75,22 @@ pub async fn search(
 }
 
 #[tauri::command]
-pub async fn install(app: AppHandle, core: Ctx<'_>, id: String) -> Result<AddonView> {
+pub async fn install(app: AppHandle, core: Ctx<'_>, id: String) -> Result<InstallOutcome> {
     core.install(&id, &emitter(&app)).await
+}
+
+#[tauri::command]
+pub async fn install_requirements(
+    app: AppHandle,
+    core: Ctx<'_>,
+    id: String,
+) -> Result<Vec<String>> {
+    core.install_requirements(&id, &emitter(&app)).await
+}
+
+#[tauri::command]
+pub async fn repair_requirements(app: AppHandle, core: Ctx<'_>) -> Result<RepairOutcome> {
+    core.repair_requirements(&emitter(&app)).await
 }
 
 #[tauri::command]

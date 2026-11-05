@@ -3,7 +3,7 @@ pub mod github;
 
 use serde::Serialize;
 
-use crate::manifest::Source;
+use crate::manifest::{Requirement, Source};
 use crate::net::Expected;
 
 /// A search result or addon page, ready for the UI.
@@ -33,4 +33,6 @@ pub struct Resolved {
     pub expected: Expected,
     pub file_id: Option<u64>,
     pub release_tag: Option<String>,
+    /// Addons this version can't work without (CurseForge "required dependency").
+    pub requires: Vec<Requirement>,
 }

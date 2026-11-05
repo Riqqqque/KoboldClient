@@ -67,6 +67,8 @@ pub fn run() {
             commands::list_installed,
             commands::search,
             commands::install,
+            commands::install_requirements,
+            commands::repair_requirements,
             commands::import_zip,
             commands::check_updates,
             commands::delete_preview,

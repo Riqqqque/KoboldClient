@@ -1,7 +1,7 @@
 //! High-level operations used by the UI. Everything that changes files on disk runs
 //! under one lock so two tasks can never edit the AddOns folder at the same time.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -14,7 +14,7 @@ use crate::error::{Error, Result};
 use crate::game::{self, GameInfo};
 use crate::install;
 use crate::logging::LogHandle;
-use crate::manifest::{InstalledAddon, Manifest, Source, Store};
+use crate::manifest::{InstalledAddon, Manifest, Requirement, Source, Store};
 use crate::net;
 use crate::remove;
 use crate::secret;
@@ -50,6 +50,25 @@ pub struct AddonView {
     pub folders: Vec<String>,
     pub built_for_forever: bool,
     pub missing: bool,
+    /// Required addons that aren't installed, so this one won't work yet.
+    pub missing_deps: Vec<Requirement>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InstallOutcome {
+    pub addon: AddonView,
+    /// Names of required addons that were installed along with it.
+    pub also_installed: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct RepairOutcome {
+    /// Names of required addons that were installed.
+    pub installed: Vec<String>,
+    /// Names of the addons that needed them.
+    pub needed_by: Vec<String>,
+    /// One message per addon whose requirements couldn't be installed.
+    pub failed: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,6 +87,8 @@ pub struct DeletePreview {
     /// (folder, name of the other addon that still uses it)
     pub kept: Vec<(String, String)>,
     pub saved_variables: usize,
+    /// Installed addons that list this one as required.
+    pub needed_by: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -246,6 +267,7 @@ impl Core {
                 folders: a.folders.clone(),
                 built_for_forever: built,
                 missing,
+                missing_deps: missing_requirements(&game, &manifest, a),
             });
         }
         out.extend(unmanaged(&game, &manifest));
@@ -297,20 +319,168 @@ impl Core {
         }
     }
 
+    /// Installs or updates an addon, and first any required addons that are missing.
     pub async fn install(
         &self,
         id: &str,
         progress: &(dyn Fn(Progress) + Send + Sync),
-    ) -> Result<AddonView> {
+    ) -> Result<InstallOutcome> {
         let pending = self.updates.lock().unwrap().get(id).cloned();
         let resolved = match pending {
             Some(r) => r,
             None => self.resolve(id).await?,
         };
+        let name = resolved.addon.name.clone();
+        let also_installed = self
+            .install_missing(&name, resolved.requires.clone(), progress)
+            .await?;
         let span = tracing::info_span!("install", op = %op_id(), addon = %resolved.addon.id, version = %resolved.version);
-        self.install_resolved(resolved, progress)
+        let addon = self
+            .install_resolved(resolved, progress)
             .instrument(span)
-            .await
+            .await?;
+        Ok(InstallOutcome {
+            addon,
+            also_installed,
+        })
+    }
+
+    /// Installs the missing required addons of one installed addon.
+    pub async fn install_requirements(
+        &self,
+        id: &str,
+        progress: &(dyn Fn(Progress) + Send + Sync),
+    ) -> Result<Vec<String>> {
+        let game = self.require_game()?;
+        let (name, missing) = {
+            let m = self.manifest.lock().unwrap();
+            let a = m
+                .get(id)
+                .ok_or_else(|| Error::NotFound("That addon isn't installed anymore.".into()))?;
+            (a.name.clone(), missing_requirements(&game, &m, a))
+        };
+        self.install_missing(&name, missing, progress).await
+    }
+
+    /// Looks up requirements for addons installed before Kobold tracked them, then
+    /// installs any that are missing. Costs one request, and only while such addons
+    /// are still in the list.
+    pub async fn repair_requirements(
+        &self,
+        progress: &(dyn Fn(Progress) + Send + Sync),
+    ) -> Result<RepairOutcome> {
+        let game = self.require_game()?;
+        let legacy: Vec<(String, u64)> = self
+            .manifest
+            .lock()
+            .unwrap()
+            .addons
+            .iter()
+            .filter(|a| a.source == Source::CurseForge && a.requires.is_none())
+            .filter_map(|a| Some((a.id.clone(), a.file_id?)))
+            .collect();
+        let mut out = RepairOutcome::default();
+        if legacy.is_empty() {
+            return Ok(out);
+        }
+        let Ok(key) = self.cf_key() else {
+            return Ok(out);
+        };
+        let file_ids: Vec<u64> = legacy.iter().map(|(_, f)| *f).collect();
+        let found = self.cf(&key).file_requirements(&file_ids).await?;
+        {
+            let mut m = self.manifest.lock().unwrap();
+            for (id, file_id) in &legacy {
+                if let (Some(reqs), Some(a)) = (found.get(file_id), m.get_mut(id)) {
+                    a.requires = Some(reqs.clone());
+                }
+            }
+            self.store.save(&m)?;
+        }
+        tracing::info!(
+            checked = legacy.len(),
+            "looked up requirements for older installs"
+        );
+
+        for (id, _) in &legacy {
+            let (name, missing) = {
+                let m = self.manifest.lock().unwrap();
+                let Some(a) = m.get(id) else { continue };
+                (a.name.clone(), missing_requirements(&game, &m, a))
+            };
+            if missing.is_empty() {
+                continue;
+            }
+            match self.install_missing(&name, missing, progress).await {
+                Ok(names) => {
+                    for n in names {
+                        if !out.installed.contains(&n) {
+                            out.installed.push(n);
+                        }
+                    }
+                    out.needed_by.push(name);
+                }
+                Err(e) => {
+                    tracing::warn!(addon = %id, error = %e, "couldn't install requirements");
+                    out.failed.push(e.to_string());
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Resolves every missing requirement (and theirs) before touching any files, then
+    /// installs them, deepest first. Returns the names installed.
+    async fn install_missing(
+        &self,
+        for_name: &str,
+        wanted: Vec<Requirement>,
+        progress: &(dyn Fn(Progress) + Send + Sync),
+    ) -> Result<Vec<String>> {
+        const MAX: usize = 20;
+        if wanted.is_empty() {
+            return Ok(vec![]);
+        }
+        let game = self.require_game()?;
+        let mut queue: VecDeque<Requirement> = wanted.into();
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut plan: Vec<Resolved> = vec![];
+        while let Some(req) = queue.pop_front() {
+            if !seen.insert(req.id.clone()) {
+                continue;
+            }
+            let present = {
+                let m = self.manifest.lock().unwrap();
+                requirement_present(&game, &m, &req)
+            };
+            if present {
+                continue;
+            }
+            if plan.len() >= MAX {
+                return Err(Error::Other(format!(
+                    "{for_name} lists more than {MAX} required addons, so Kobold stopped."
+                )));
+            }
+            tracing::info!(requirement = %req.id, name = %req.name, needed_by = %for_name, "resolving required addon");
+            let r = self
+                .resolve(&req.id)
+                .await
+                .map_err(|e| needed_for(for_name, &req.name, e))?;
+            queue.extend(r.requires.iter().cloned());
+            plan.push(r);
+        }
+        plan.reverse();
+        let mut names = vec![];
+        for r in plan {
+            let name = r.addon.name.clone();
+            let span = tracing::info_span!("install", op = %op_id(), addon = %r.addon.id, version = %r.version, needed_by = %for_name);
+            self.install_resolved(r, progress)
+                .instrument(span)
+                .await
+                .map_err(|e| needed_for(for_name, &name, e))?;
+            names.push(name);
+        }
+        Ok(names)
     }
 
     async fn install_resolved(
@@ -375,6 +545,7 @@ impl Core {
             enabled: true,
             pinned: false,
             archive_sha256: Some(dl.sha256),
+            requires: Some(r.requires.clone()),
         };
         let result = self.install_archive_locked(&game, &dest, template, &report);
         let _ = fs::remove_file(&dest);
@@ -426,6 +597,7 @@ impl Core {
             enabled: true,
             pinned: false,
             archive_sha256: None,
+            requires: None,
         };
         let r = self.install_archive_locked(&game, path, template, &report);
         report(if r.is_ok() { "done" } else { "error" }, 100);
@@ -647,6 +819,7 @@ impl Core {
             folders,
             kept,
             saved_variables,
+            needed_by: m.needed_by(id),
         })
     }
 
@@ -810,6 +983,40 @@ impl Core {
     }
 }
 
+/// Keeps errors the UI acts on (blocked downloads, key and network problems) as they
+/// are, and says which addon needed the requirement for everything else.
+fn needed_for(for_name: &str, dep: &str, e: Error) -> Error {
+    match e {
+        Error::DistributionBlocked { .. }
+        | Error::NoCurseForgeKey
+        | Error::BadCurseForgeKey
+        | Error::Offline { .. } => e,
+        other => Error::Other(format!(
+            "{for_name} needs {dep}, but it couldn't be installed: {other}"
+        )),
+    }
+}
+
+/// A requirement counts as present if Kobold manages it, or if a folder with its name
+/// was installed by hand (for example from a zip import).
+fn requirement_present(game: &GameInfo, m: &Manifest, req: &Requirement) -> bool {
+    if m.get(&req.id).is_some() {
+        return true;
+    }
+    let name = req.name.trim();
+    !name.is_empty()
+        && !name.contains(['/', '\\', ':'])
+        && !name.contains("..")
+        && game.addons_dir.join(name).is_dir()
+}
+
+fn missing_requirements(game: &GameInfo, m: &Manifest, a: &InstalledAddon) -> Vec<Requirement> {
+    m.missing_for(a)
+        .into_iter()
+        .filter(|r| !requirement_present(game, m, r))
+        .collect()
+}
+
 /// Removes a staging folder when dropped, whatever happened.
 struct StagingGuard(PathBuf);
 impl Drop for StagingGuard {
@@ -887,7 +1094,94 @@ fn unmanaged(game: &GameInfo, m: &Manifest) -> Vec<AddonView> {
                 folders,
                 built_for_forever: t.as_ref().map(|t| t.built_for_forever()).unwrap_or(false),
                 missing: false,
+                missing_deps: vec![],
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addon(id: &str, name: &str, requires: Option<Vec<Requirement>>) -> InstalledAddon {
+        InstalledAddon {
+            id: id.into(),
+            name: name.into(),
+            author: String::new(),
+            summary: String::new(),
+            source: Source::CurseForge,
+            version: "1".into(),
+            file_id: Some(1),
+            release_tag: None,
+            project_url: None,
+            icon_url: None,
+            folders: vec![name.into()],
+            installed_at: 0,
+            updated_at: 0,
+            enabled: true,
+            pinned: false,
+            archive_sha256: None,
+            requires,
+        }
+    }
+
+    fn req(id: &str, name: &str) -> Requirement {
+        Requirement {
+            id: id.into(),
+            name: name.into(),
+        }
+    }
+
+    #[test]
+    fn requirements_count_managed_and_hand_installed_folders() {
+        let dir = tempfile::tempdir().unwrap();
+        let addons_dir = dir.path().join("Interface").join("AddOns");
+        fs::create_dir_all(addons_dir.join("QuestieTrace")).unwrap();
+        let game = GameInfo {
+            root: dir.path().to_path_buf(),
+            version: None,
+            addons_dir,
+            running: false,
+        };
+        let mut m = Manifest::default();
+        let questie = addon(
+            "cf:1",
+            "Questie",
+            Some(vec![
+                req("cf:2", "QuestieDB"),
+                req("cf:3", "QuestieTrace"),
+                req("cf:4", "LibThing"),
+                req("cf:5", "../Questie"),
+            ]),
+        );
+        m.upsert(questie.clone());
+        m.upsert(addon("cf:4", "LibThing", Some(vec![])));
+        let missing: Vec<String> = missing_requirements(&game, &m, &questie)
+            .into_iter()
+            .map(|r| r.name)
+            .collect();
+        // QuestieTrace is on disk, LibThing is managed, and a path-like name never
+        // counts as a folder.
+        assert_eq!(missing, vec!["QuestieDB", "../Questie"]);
+    }
+
+    #[test]
+    fn requirement_errors_name_the_addon() {
+        let e = needed_for(
+            "Questie",
+            "QuestieDB",
+            Error::NoForeverBuild("QuestieDB".into()),
+        );
+        assert!(e.to_string().starts_with("Questie needs QuestieDB"));
+        let blocked = needed_for(
+            "Questie",
+            "QuestieDB",
+            Error::DistributionBlocked {
+                name: "QuestieDB".into(),
+                url: "u".into(),
+            },
+        );
+        assert_eq!(blocked.code(), "distribution_blocked");
+    }
 }

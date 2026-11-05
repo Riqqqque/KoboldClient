@@ -24,6 +24,8 @@ export const app = $state({
   toasts: [] as Toast[],
   bannerDismissed: false,
   launching: false,
+  /** Ids of addons whose missing requirements are being installed. */
+  fixing: {} as Record<string, boolean>,
 });
 
 let toastSeq = 0;
@@ -79,25 +81,66 @@ export async function checkUpdates(silent = false) {
   }
 }
 
-export async function installAddon(id: string, label: string) {
+/** "A", "A and B", "A, B and C". */
+export function joinNames(names: string[]) {
+  return names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+function installFailed(context: string, e: unknown) {
+  const err = asError(e);
+  api.log("warn", `${context}: [${err.code}] ${err.message}`);
+  if (err.code === "distribution_blocked" && err.url) {
+    toast(`${err.message} Download it there, then use Import .zip.`, {
+      kind: "error",
+      action: { label: "Open page", run: () => openUrl(err.url!) },
+    });
+  } else {
+    toast(err.message, { kind: "error", ms: 7000 });
+  }
+}
+
+export async function installAddon(id: string, _label: string) {
   try {
-    const v = await api.install(id);
+    const { addon: v, also_installed } = await api.install(id);
     await refreshInstalled();
-    toast(`${v.name} ${v.version ? v.version + " " : ""}installed`);
+    const extra = also_installed.length ? `, along with ${joinNames(also_installed)} which it needs` : "";
+    toast(`${v.name} ${v.version ? v.version + " " : ""}installed${extra}`, { ms: extra ? 6000 : undefined });
     return v;
   } catch (e) {
-    const err = asError(e);
-    api.log("warn", `install ${id}: [${err.code}] ${err.message}`);
-    if (err.code === "distribution_blocked" && err.url) {
-      toast(`${label}'s author only allows downloads from CurseForge. Download it there, then use Import .zip.`, {
-        kind: "error",
-        action: { label: "Open page", run: () => openUrl(err.url!) },
-      });
-    } else {
-      toast(err.message, { kind: "error", ms: 6000 });
-    }
+    installFailed(`install ${id}`, e);
   } finally {
     delete app.progress[id];
+  }
+}
+
+/** Installs the required addons one installed addon is missing. */
+export async function installRequirements(a: AddonView) {
+  if (app.fixing[a.id]) return;
+  app.fixing[a.id] = true;
+  try {
+    const names = await api.installRequirements(a.id);
+    await refreshInstalled();
+    toast(names.length ? `Installed ${joinNames(names)} for ${a.name}` : `${a.name} has everything it needs`);
+  } catch (e) {
+    installFailed(`install requirements ${a.id}`, e);
+    await refreshInstalled();
+  } finally {
+    delete app.fixing[a.id];
+  }
+}
+
+/** On launch: fills in requirements for addons installed by older versions and
+ *  installs any that are missing. Quiet unless it did something. */
+export async function repairRequirements() {
+  try {
+    const r = await api.repairRequirements();
+    if (r.installed.length || r.failed.length) await refreshInstalled();
+    if (r.installed.length) {
+      toast(`Installed ${joinNames(r.installed)}, which ${joinNames(r.needed_by)} needs to work`, { ms: 8000 });
+    }
+    for (const msg of r.failed) toast(msg, { kind: "error", ms: 8000 });
+  } catch (e) {
+    api.log("warn", `repair requirements: [${asError(e).code}] ${asError(e).message}`);
   }
 }
 

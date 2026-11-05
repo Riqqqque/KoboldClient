@@ -2,7 +2,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
   import { api } from "./lib/api";
-  import { app, applyTheme, checkUpdates, fail, play, refreshInstalled, refreshState, startListening, updateAll, type View } from "./lib/store.svelte";
+  import { app, applyTheme, checkUpdates, fail, play, refreshInstalled, refreshState, repairRequirements, startListening, updateAll, type View } from "./lib/store.svelte";
   import { checkAppUpdate, installAppUpdate } from "./lib/updater";
   import Icon from "./components/Icon.svelte";
   import TitleBar from "./components/TitleBar.svelte";
@@ -20,6 +20,7 @@
   async function afterGameReady() {
     await refreshState();
     await refreshInstalled();
+    if (app.state!.has_cf_key) await repairRequirements();
     const s = app.state!.settings;
     if (s.check_updates_on_launch || s.auto_update_addons) {
       await checkUpdates(true);

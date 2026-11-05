@@ -1,7 +1,7 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type AddonView } from "../lib/api";
-  import { app, checkUpdates, fail, installAddon, refreshInstalled, toast, updateAll } from "../lib/store.svelte";
+  import { app, checkUpdates, fail, installAddon, installRequirements, joinNames, refreshInstalled, toast, updateAll } from "../lib/store.svelte";
   import AddonIcon from "../components/AddonIcon.svelte";
   import DeleteDialog from "../components/DeleteDialog.svelte";
   import Icon from "../components/Icon.svelte";
@@ -109,6 +109,7 @@
             {#if !a.source}<span class="tag mute" title="Kobold didn't install this one, so it can't update it">Installed by hand</span>{/if}
             {#if !a.built_for_forever}<span class="tag warn" title="No TOC for interface 16001. It may not load.">Not built for Forever</span>{/if}
             {#if a.missing}<span class="tag danger">Files missing</span>{/if}
+            {#if a.missing_deps.length}<span class="tag danger" title="{a.name} won't work until {joinNames(a.missing_deps.map((d) => d.name))} {a.missing_deps.length > 1 ? 'are' : 'is'} installed">Needs {joinNames(a.missing_deps.map((d) => d.name))}</span>{/if}
             {#if a.pinned}<span class="tag mute"><Icon name="pin" size={10} stroke={2.2} /> Pinned</span>{/if}
           </b>
           <small>
@@ -119,8 +120,12 @@
         <div class="act">
           {#if prog}
             <div class="prog"><div class="bar"><i style:width="{prog.pct}%"></i></div><small>{stageLabel(prog.stage)} · {prog.pct}%</small></div>
+          {:else if app.fixing[a.id]}
+            <span class="ok-txt"><Icon name="refresh" size={13} class="spin" /> Installing…</span>
           {:else if a.missing && a.source && a.source !== "zip"}
             <button class="btn sm" onclick={() => installAddon(a.id, a.name)}>Reinstall</button>
+          {:else if a.missing_deps.length}
+            <button class="btn sm primary" title="Install {joinNames(a.missing_deps.map((d) => d.name))}" onclick={() => installRequirements(a)}>Install missing</button>
           {:else if a.new_version}
             <button class="btn sm primary" onclick={() => installAddon(a.id, a.name)}>Update</button>
           {:else if a.source}

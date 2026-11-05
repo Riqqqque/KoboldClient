@@ -52,6 +52,17 @@ pub struct InstalledAddon {
     /// SHA-256 of the downloaded archive, kept for troubleshooting.
     #[serde(default)]
     pub archive_sha256: Option<String>,
+    /// Other addons this one can't work without, as the source lists them.
+    /// `None` means it hasn't been looked up yet (lists written by 0.1.1 and older).
+    #[serde(default)]
+    pub requires: Option<Vec<Requirement>>,
+}
+
+/// A required addon, by id (`cf:<modId>`) and display name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Requirement {
+    pub id: String,
+    pub name: String,
 }
 
 fn yes() -> bool {
@@ -111,6 +122,26 @@ impl Manifest {
             self.addons.push(addon);
         }
         self.addons.sort_by_key(|a| a.name.to_ascii_lowercase());
+    }
+
+    /// Names of installed addons that list `id` as required.
+    pub fn needed_by(&self, id: &str) -> Vec<String> {
+        self.addons
+            .iter()
+            .filter(|a| a.id != id && a.requires.iter().flatten().any(|r| r.id == id))
+            .map(|a| a.name.clone())
+            .collect()
+    }
+
+    /// Requirements of `addon` that aren't installed.
+    pub fn missing_for(&self, addon: &InstalledAddon) -> Vec<Requirement> {
+        addon
+            .requires
+            .iter()
+            .flatten()
+            .filter(|r| r.id != addon.id && self.get(&r.id).is_none())
+            .cloned()
+            .collect()
     }
 
     pub fn remove(&mut self, id: &str) -> Option<InstalledAddon> {
@@ -209,6 +240,7 @@ mod tests {
             enabled: true,
             pinned: false,
             archive_sha256: None,
+            requires: None,
         }
     }
 
@@ -219,6 +251,36 @@ mod tests {
         m.upsert(addon("b", &["B", "libs"]));
         assert_eq!(m.owners_of("LIBS", "a").len(), 1);
         assert!(m.owners_of("A", "a").is_empty());
+    }
+
+    #[test]
+    fn missing_requirements() {
+        let mut m = Manifest::default();
+        let mut q = addon("cf:1", &["Questie"]);
+        q.requires = Some(vec![
+            Requirement {
+                id: "cf:2".into(),
+                name: "QuestieDB".into(),
+            },
+            Requirement {
+                id: "cf:3".into(),
+                name: "QuestieTrace".into(),
+            },
+        ]);
+        m.upsert(q.clone());
+        m.upsert(addon("cf:3", &["QuestieTrace"]));
+        let missing = m.missing_for(&q);
+        assert_eq!(missing.len(), 1);
+        assert_eq!(missing[0].name, "QuestieDB");
+        assert_eq!(m.needed_by("cf:3"), vec!["cf:1".to_string()]);
+        assert!(m.needed_by("cf:1").is_empty());
+    }
+
+    #[test]
+    fn old_lists_load_without_requirements() {
+        let json = r#"{"schema":1,"addons":[{"id":"cf:1","name":"X","source":"curseforge","version":"1","folders":["X"]}]}"#;
+        let m: Manifest = serde_json::from_str(json).unwrap();
+        assert!(m.addons[0].requires.is_none());
     }
 
     #[test]
