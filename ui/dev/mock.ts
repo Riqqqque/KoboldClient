@@ -13,7 +13,7 @@ const state: StateView = {
   has_cf_key: new URLSearchParams(location.search).has("cf"),
   has_gh_token: false,
   has_wago_key: new URLSearchParams(location.search).has("wago"),
-  app_version: "0.1.0",
+  app_version: "0.2.0",
   log_dir: "C:\\Users\\you\\AppData\\Local\\com.rique.koboldclient\\logs",
 };
 
