@@ -15,7 +15,7 @@ Find addons, install them, keep them updated, and remove them cleanly.</p>
 - **Forever builds only.** Browse shows only addons that publish a Forever build. Anything installed by hand that isn't built for Forever gets a clear label.
 - **CurseForge, Wago, WoWInterface, GitHub and zip files.** Search CurseForge and Wago for Forever builds, search WoWInterface or paste a link, add a GitHub repository, or import a `.zip` you downloaded.
 - **Verified downloads.** Downloads are checked against the checksum the source publishes (SHA-1 or MD5 from CurseForge, MD5 from WoWInterface, SHA-256 from GitHub). A file that doesn't match is thrown away and nothing changes. Wago doesn't publish checksums, so Wago downloads rely on HTTPS.
-- **Shows which addon broke.** Kobold reads the game's error log and lists Lua errors by the addon that caused them, with buttons to update or disable it and to copy the errors for a bug report.
+- **Shows which addon broke.** Kobold reads the game's error log and lists Lua errors by the addon that caused them, with buttons to update or disable it and to copy the errors for a bug report. When an addon has tainted the game's own interface and errors keep piling up, it tells you to `/reload`.
 - **Settings backups.** Before addons update, Kobold zips the `WTF` folder (addon settings, keybinds, macros) if it changed since the last backup. Restore any backup from Settings; the folder it replaces is backed up first.
 - **Recognizes addons you installed by hand.** If CurseForge knows an addon you copied in yourself, Kobold links it so it gets updates like the rest. Nothing on disk changes.
 - **Take your addons anywhere.** Save your addon list to a file and install the same set on another PC, or share it.

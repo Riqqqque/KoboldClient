@@ -40,6 +40,10 @@ pub struct LuaError {
     /// Folder name of the addon this points at, if any.
     pub folder: Option<String>,
     pub blame: Blame,
+    /// The game refused to run its own code because an addon had touched it
+    /// earlier ("tainted by", "untainted execution"). These keep coming until the
+    /// interface reloads, and `/reload` clears them.
+    pub tainted: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -47,6 +51,22 @@ pub struct Log {
     /// The first timestamp in the file; identifies one game session.
     pub started: Option<String>,
     pub errors: Vec<LuaError>,
+    /// The last time the interface loaded after some errors were already logged
+    /// (a `/reload`, or logging out to the character list and back), and how many
+    /// errors came before it. Taint from before that point is gone.
+    pub reloaded: Option<(String, usize)>,
+}
+
+/// Lines the game writes when it builds a fresh interface: the capacity lines at
+/// game start and entering the world, `isReloadingUI="true"` on a `/reload`
+/// (checked against a real Forever log, 2026-11-07).
+fn is_ui_load(line: &str) -> bool {
+    line.contains("[N][Lua] LimitedLuaResources: Addon capacity")
+        || line.contains("isReloadingUI=\"true\"")
+}
+
+fn is_tainted(message: &str) -> bool {
+    message.to_ascii_lowercase().contains("tainted")
 }
 
 pub fn read(path: &Path, known_folders: &[String]) -> Option<Log> {
@@ -93,6 +113,11 @@ pub fn parse(text: &str, known_folders: &[String]) -> Log {
     let mut log = Log::default();
     let mut lines = text.lines().peekable();
     while let Some(line) = lines.next() {
+        if !log.errors.is_empty() && is_ui_load(line) {
+            let time = timestamp(line).unwrap_or("").to_string();
+            log.reloaded = Some((time, log.errors.len()));
+            continue;
+        }
         let Some(at) = line.find(MARK) else { continue };
         let message = line[at + MARK.len()..].trim().to_string();
         let time = timestamp(line).unwrap_or("").to_string();
@@ -107,8 +132,10 @@ pub fn parse(text: &str, known_folders: &[String]) -> Log {
             }
             lines.next();
         }
+        let tainted = is_tainted(&message);
         let (folder, blame) = match culprit(&message, &stack, known_folders) {
             Some((f, b)) => (Some(f), b),
+            None if tainted => (None, Blame::Taint),
             None => (None, Blame::Code),
         };
         log.errors.push(LuaError {
@@ -117,6 +144,7 @@ pub fn parse(text: &str, known_folders: &[String]) -> Log {
             stack,
             folder,
             blame,
+            tainted,
         });
     }
     log
@@ -228,6 +256,70 @@ mod tests {
         assert_eq!(t.stack.len(), 3);
         // A macro or script error belongs to no addon.
         assert!(log.errors[3].folder.is_none());
+    }
+
+    // From a real Forever session: gamepad action bars failing after Edit Mode ran
+    // tainted, then the same after a reload.
+    const TAINTED: &str = "11/6 23:18:51.969  [N][Lua] LimitedLuaResources: Addon capacity for Frame changed to 10000\n\
+11/6 23:19:02.438  [N][Lua] LimitedLuaResources: Addon capacity for Frame changed to 10000\n\
+11/7 01:21:50.264  [E][Lua] Lua Error: ...ce/AddOns/Blizzard_ActionBar/Shared/ActionButton.lua:891: bad argument #1 to 'SetCooldown' (Usage: self:SetCooldown(start, duration [, modRate]). Secret values are only allowed during untainted execution for this argument.)\n\
+[Interface/AddOns/Blizzard_ActionBar/Shared/ActionButton.lua]:891: in function <...ce/AddOns/Blizzard_ActionBar/Shared/ActionButton.lua:889>\n\
+[Interface/AddOns/Blizzard_GamepadActionBars/ActionBarButton.lua]:1010: in function 'UpdateCooldown'\n\
+\n\
+11/7 01:23:53.755  [E][Lua] Lua Error: ...ddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua:698: attempt to compare local 'oldR' (a secret number value, while execution tainted by 'TomTom')\n\
+[Interface/AddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua]:698: in function 'CompactUnitFrame_UpdateHealthColor'\n\
+\n\
+11/7 01:24:00.000  [E][Lua] Lua Error: Interface/AddOns/Questie/Modules/x.lua:5: attempt to index a nil value\n\
+11/7 01:30:00.100  [N][AccountData] AccountData_RequestLoad forcing local file load type=\"5\" isReloadingUI=\"true\" loadOnDemandOnly=\"false\"\n\
+11/7 01:31:00.000  [E][Lua] Lua Error: Interface/AddOns/Questie/Modules/x.lua:5: attempt to index a nil value\n";
+
+    #[test]
+    fn taint_and_reloads() {
+        let known = vec!["Questie".to_string(), "TomTom".to_string()];
+        let log = parse(TAINTED, &known);
+        assert_eq!(log.errors.len(), 4);
+        // No addon named: still taint, tied to no folder.
+        let bar = &log.errors[0];
+        assert!(bar.tainted);
+        assert_eq!(bar.blame, Blame::Taint);
+        assert!(bar.folder.is_none());
+        let tt = &log.errors[1];
+        assert!(tt.tainted);
+        assert_eq!(tt.folder.as_deref(), Some("TomTom"));
+        assert!(!log.errors[2].tainted);
+        // The loads before any error are the game starting, not a reload.
+        assert_eq!(log.reloaded, Some(("11/7 01:30:00".to_string(), 3)));
+
+        let fresh = parse(
+            &TAINTED[..TAINTED.find("11/7 01:30:00.100").unwrap()],
+            &known,
+        );
+        assert_eq!(fresh.reloaded, None);
+    }
+
+    /// Read-only: `cargo test live_general_log -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn live_general_log() {
+        let p = Path::new(r"D:\games\World of Warcraft\_forever_\Logs\General.log");
+        let known = vec![
+            "Questie".to_string(),
+            "TomTom".to_string(),
+            "RareScanner".to_string(),
+        ];
+        let log = read(p, &known).expect("no log on this PC");
+        let tainted = log.errors.iter().filter(|e| e.tainted).count();
+        let unnamed = log
+            .errors
+            .iter()
+            .filter(|e| e.tainted && e.folder.is_none())
+            .count();
+        println!(
+            "started {:?}, {} errors, {tainted} tainted ({unnamed} unnamed), reloaded {:?}",
+            log.started,
+            log.errors.len(),
+            log.reloaded
+        );
     }
 
     #[test]

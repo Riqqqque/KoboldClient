@@ -56,8 +56,13 @@
       await getCurrentWindow().show();
       if (app.state?.game) await afterGameReady();
       if (app.state?.settings.check_updates_on_launch) checkAppUpdate(true);
-      // Keep the "game is running" state fresh without hammering anything.
-      timer = setInterval(() => refreshState().catch(() => {}), 15000);
+      // Keep the "game is running" state fresh without hammering anything. While the
+      // game runs, also re-read its log once a minute so taint shows up mid-session.
+      let tick = 0;
+      timer = setInterval(() => {
+        refreshState().catch(() => {});
+        if (++tick % 4 === 0 && app.state?.game?.running) refreshErrors();
+      }, 15000);
     })();
     return () => clearInterval(timer);
   });
@@ -77,7 +82,7 @@
   }
 </script>
 
-<svelte:window onkeydown={onkey} oncontextmenu={(e) => import.meta.env.PROD && e.preventDefault()} />
+<svelte:window onkeydown={onkey} onfocus={() => app.state?.game?.running && refreshErrors()} oncontextmenu={(e) => import.meta.env.PROD && e.preventDefault()} />
 
 <div class="win">
   <TitleBar />

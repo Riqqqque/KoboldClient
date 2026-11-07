@@ -113,6 +113,15 @@ pub struct ErrorReport {
     pub addons: Vec<AddonErrors>,
     /// Errors that don't point at any addon (macros, scripts, the game itself).
     pub other: Vec<ErrorGroup>,
+    /// Taint errors since the interface last loaded. They keep coming until the
+    /// player types `/reload`.
+    pub taint: usize,
+    /// Addons the game named in those taint errors.
+    pub taint_by: Vec<String>,
+    /// When the interface last reloaded mid-session (`11/7 01:30:00`), if some
+    /// errors came before it, and how many did.
+    pub reloaded: Option<String>,
+    pub before_reload: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1167,7 +1176,24 @@ impl Core {
         };
         let mut addons: Vec<AddonErrors> = vec![];
         let mut other: Vec<ErrorGroup> = vec![];
-        for e in log.errors {
+        let (reloaded, before_reload) = match log.reloaded {
+            Some((time, n)) => (Some(time), n),
+            None => (None, 0),
+        };
+        let mut taint = 0;
+        let mut taint_by: Vec<String> = vec![];
+        for (i, e) in log.errors.into_iter().enumerate() {
+            if e.tainted && i >= before_reload {
+                taint += 1;
+                if let (Blame::Taint, Some(folder)) = (&e.blame, &e.folder) {
+                    let name = owner(folder)
+                        .map(|v| v.name.clone())
+                        .unwrap_or_else(|| folder.clone());
+                    if !taint_by.contains(&name) {
+                        taint_by.push(name);
+                    }
+                }
+            }
             let groups = match &e.folder {
                 Some(folder) => {
                     let view = owner(folder);
@@ -1227,6 +1253,10 @@ impl Core {
             total,
             addons,
             other,
+            taint,
+            taint_by,
+            reloaded,
+            before_reload,
         })
     }
 

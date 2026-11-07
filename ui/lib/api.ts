@@ -128,6 +128,13 @@ export interface ErrorReport {
   total: number;
   addons: AddonErrors[];
   other: ErrorGroup[];
+  /** Taint errors since the interface last loaded; /reload clears them. */
+  taint: number;
+  /** Addons the game named in those taint errors. */
+  taint_by: string[];
+  /** When the interface last reloaded mid-session, if errors came before it. */
+  reloaded: string | null;
+  before_reload: number;
 }
 
 export interface Backup {

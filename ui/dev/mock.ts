@@ -61,7 +61,16 @@ const errorReport = (): ErrorReport => ({
       groups: [{ message: "...ddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua:698: attempt to compare local 'oldR' (a secret number value, while execution tainted by 'Waypoints')", count: 1, first: "11/4 22:23:59", last: "11/4 22:23:59", blame: "taint", stack: ["[Interface/AddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua]:698: in function 'CompactUnitFrame_UpdateHealthColor'", "[C]: in function 'Show'"] }],
     },
   ],
-  other: [{ message: '[string "/run x()"]:1: attempt to call a nil value', count: 1, first: "11/4 22:30:00", last: "11/4 22:30:00", blame: "code", stack: [] }],
+  other: [
+    { message: "...ce/AddOns/Blizzard_ActionBar/Shared/ActionButton.lua:891: bad argument #1 to 'SetCooldown' (Usage: self:SetCooldown(start, duration [, modRate]). Secret values are only allowed during untainted execution for this argument.)", count: 1228, first: "11/4 22:21:50", last: "11/4 22:28:15", blame: "taint", stack: ["[Interface/AddOns/Blizzard_ActionBar/Shared/ActionButton.lua]:891: in function <...ce/AddOns/Blizzard_ActionBar/Shared/ActionButton.lua:889>", "[Interface/AddOns/Blizzard_GamepadActionBars/ActionBarButton.lua]:1010: in function 'UpdateCooldown'"] },
+    { message: '[string "/run x()"]:1: attempt to call a nil value', count: 1, first: "11/4 22:30:00", last: "11/4 22:30:00", blame: "code", stack: [] },
+  ],
+  // `?taint` in the URL simulates a tainted session; `&reloaded` one after a /reload.
+  ...(new URLSearchParams(location.search).has("taint")
+    ? new URLSearchParams(location.search).has("reloaded")
+      ? { taint: 0, taint_by: [], reloaded: "11/4 22:31:02", before_reload: 1243 }
+      : { taint: 1229, taint_by: ["Waypoints"], reloaded: null, before_reload: 0 }
+    : { taint: 0, taint_by: [], reloaded: null, before_reload: 0 }),
 });
 
 const now = () => Math.floor(Date.now() / 1000);

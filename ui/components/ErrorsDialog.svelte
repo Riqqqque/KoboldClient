@@ -1,7 +1,7 @@
 <script lang="ts">
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api, type AddonErrors, type ErrorGroup } from "../lib/api";
-  import { app, dismissErrors, fail, installAddon, refreshErrors, refreshInstalled, toast } from "../lib/store.svelte";
+  import { app, dismissErrors, fail, installAddon, joinNames, refreshErrors, refreshInstalled, toast } from "../lib/store.svelte";
   import Icon from "./Icon.svelte";
   import Modal from "./Modal.svelte";
 
@@ -64,6 +64,33 @@
       From the game's log{report.started ? `, session started ${report.started}` : ""}. The game starts a new log each time it launches.
       {#if running}Errors keep coming in while you play; this list refreshes when you reopen it.{/if}
     </p>
+    {#if report.taint > 0}
+      <div class="taint">
+        <Icon name="alert" size={16} stroke={2} />
+        <div>
+          {#if running}
+            <b>Type <span class="mono">/reload</span> in game to stop {report.taint === 1 ? "this error" : `${report.taint.toLocaleString()} of these errors`}.</b>
+          {:else}
+            <b>{report.taint.toLocaleString()} of these error{report.taint === 1 ? " was" : "s were"} taint, which went away when the game closed.</b>
+          {/if}
+          <p>
+            Nothing is broken in your addon files. An addon touched part of the game's own interface{report.taint_by.length
+              ? ` (the game named ${joinNames(report.taint_by)})`
+              : ""}, and from then on the game refuses to run that part, so action bars or party frames fail every time they update.
+            A reload or a restart clears it.
+          </p>
+          <p>
+            It usually starts when an addon opens a game window from its own code, such as its settings through a slash command,
+            and spreads when you open Edit Mode afterwards. Opening addon settings from Esc → Options → AddOns avoids it.
+          </p>
+        </div>
+      </div>
+    {/if}
+    {#if report.reloaded && report.before_reload > 0}
+      <p class="muted small">
+        You reloaded the interface at {report.reloaded}. {report.before_reload === 1 ? "The first error is" : `The first ${report.before_reload.toLocaleString()} errors are`} from before that.
+      </p>
+    {/if}
     <div class="list">
       {#each report.addons as a (a.id ?? a.folder)}
         <div class="addon">
@@ -85,7 +112,7 @@
           {#if a.groups.some((g) => g.blame === "taint")}
             <div class="hint">
               <Icon name="info" size={14} />
-              <span>The game's own interface failed because {a.name} touched protected code. It's often harmless, but if something stops working, update or disable {a.name}.</span>
+              <span>The game's own interface failed because {a.name} touched protected code. Type /reload in game to clear it. If it keeps coming back, update or disable {a.name}.</span>
             </div>
           {/if}
           {#each a.groups as g}
@@ -102,7 +129,14 @@
       {#if report.other.length}
         <div class="addon">
           <div class="top"><b class="muted">Not tied to an addon</b><span class="tag mute">{report.other.reduce((n, g) => n + g.count, 0)}</span></div>
-          <div class="hint"><Icon name="info" size={14} /><span>Usually macros, /run scripts or the game itself.</span></div>
+          <div class="hint">
+            <Icon name="info" size={14} />
+            <span>
+              {report.other.some((g) => g.blame === "taint")
+                ? "Taint errors where the game didn't say which addon caused them, plus any from macros or /run scripts."
+                : "Usually macros, /run scripts or the game itself."}
+            </span>
+          </div>
           {#each report.other as g}
             <details class="err">
               <summary><span class="msg mono">{g.message}</span><span class="when">{g.count > 1 ? `${g.count}×` : g.first}</span></summary>
@@ -136,4 +170,9 @@
   .when { flex: none; font-size: 11px; color: var(--faint); white-space: nowrap; }
   pre { margin: 7px 0 0; padding: 8px 10px; background: var(--bg); border-radius: 6px; font-size: 11px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; word-break: break-all; max-height: 180px; overflow: auto; }
   .acts .sp { flex: 1; }
+  .taint { display: flex; gap: 10px; align-items: flex-start; background: var(--danger-soft); border-radius: 9px; padding: 10px 12px; margin-bottom: 12px; font-size: 12.5px; line-height: 1.5; }
+  .taint > :global(svg) { color: var(--danger); flex: none; margin-top: 2px; }
+  .taint b { font-weight: 600; }
+  .taint p { margin: 5px 0 0; color: var(--muted); }
+  .small { font-size: 12px; margin-top: -4px; }
 </style>

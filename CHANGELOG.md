@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- **Spots a tainted interface.** When the game's own action bars or party frames start failing over and over because an addon touched them earlier, Kobold says so while you play and tells you to type `/reload`, which clears it. The errors window explains what usually causes it and how to avoid it.
+- Errors from before a `/reload` are counted separately, so a reload that fixed things doesn't keep looking broken.
+- The error list refreshes once a minute while the game runs, and when you switch back to Kobold.
+
 ## 0.2.0
 
 - **See which addon is causing Lua errors.** Kobold reads the game's error log and groups errors by addon, including errors in the game's own UI that an addon set off ("tainted by"). The Installed list flags those addons; the errors window can update or disable them and copy the errors for a bug report.

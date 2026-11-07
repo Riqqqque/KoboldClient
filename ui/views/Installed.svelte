@@ -23,7 +23,15 @@
       .filter((a) => !query || a.name.toLowerCase().includes(query.toLowerCase())),
   );
   const errorCount = $derived(new Map((app.errors?.addons ?? []).filter((e) => e.id).map((e) => [e.id!, e.count])));
-  const showErrorBanner = $derived(!!app.errors && app.errors.total > 0 && !app.errors.seen);
+  // Taint only matters while the game runs: a reload or a restart clears it.
+  const showTaintBanner = $derived(!!app.errors && app.errors.taint > 0 && (app.state?.game?.running ?? false));
+  // Not when the taint banner already covers every addon error.
+  const showErrorBanner = $derived(
+    !!app.errors &&
+      app.errors.total > 0 &&
+      !app.errors.seen &&
+      !(showTaintBanner && app.errors.addons.every((a) => a.groups.every((g) => g.blame === "taint"))),
+  );
   const handCount = $derived(app.installed.filter((a) => !a.source || a.source === "zip").length);
   let linking = $state(false);
 
@@ -99,6 +107,18 @@
     <div class="banner">
       <Icon name="spinner" size={16} stroke={2.2} class="spin" />
       Installing from your addon list: {app.importing.done + 1} of {app.importing.total}{app.importing.name ? ` · ${app.importing.name}` : ""}
+    </div>
+  {/if}
+
+  {#if showTaintBanner}
+    {@const by = app.errors!.taint_by}
+    <div class="banner bad">
+      <Icon name="alert" size={16} stroke={2} />
+      <span>
+        WoW's interface is tainted{by.length ? ` by ${joinNames(by)}` : ""}: {app.errors!.taint.toLocaleString()} error{app.errors!.taint === 1 ? "" : "s"} so far, and more until you reload.
+        Type <b class="mono">/reload</b> in game to clear it.
+      </span>
+      <button class="btn sm" onclick={openErrors}>Why?</button>
     </div>
   {/if}
 
